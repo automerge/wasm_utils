@@ -11,3 +11,7 @@ rust-version.workspace = true
 
 [dependencies]
 wasm-bindgen.workspace = true
+
+[features]
+default = []
+std = []
