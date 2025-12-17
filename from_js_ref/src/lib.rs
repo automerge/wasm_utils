@@ -1,6 +1,6 @@
 //! Convert JS-imported reference types to Rust-exported types.
 
-#[no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 use wasm_bindgen::{JsCast, JsValue};
 

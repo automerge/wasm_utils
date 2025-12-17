@@ -1,6 +1,9 @@
-#[no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
 
+extern crate alloc;
+
+use alloc::{format, string::{String, ToString}};
 use heck::ToSnakeCase;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
