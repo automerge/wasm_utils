@@ -38,9 +38,9 @@ pub fn wasm_refgen(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenStream {
     let js_ref_ident = args.js_ref;
 
-    if impl_block.trait_.is_some() {
+    if let Some((_, path, _)) = &impl_block.trait_ {
         return syn::Error::new(
-            impl_block.trait_.as_ref().unwrap().1.span(),
+            path.span(),
             "#[wasm_refgen] must be used on an inherent impl, not a trait impl",
         )
         .to_compile_error();
