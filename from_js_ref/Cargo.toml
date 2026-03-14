@@ -1,6 +1,6 @@
 [package]
 name = "from_js_ref"
-version = "0.1.3"
+version = "0.1.4"
 description = "Trait for converting from JS interface reference wrappers"
 
 authors.workspace = true
@@ -11,6 +11,9 @@ rust-version.workspace = true
 
 [dependencies]
 wasm-bindgen.workspace = true
+
+[dev-dependencies]
+wasm_refgen = { path = "../wasm_refgen" }
 
 [features]
 default = []
