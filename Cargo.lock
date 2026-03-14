@@ -17,18 +17,18 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "from_js_ref"
 version = "0.1.3"
-dependencies = [
- "wasm-bindgen",
- "wasm_refgen",
-]
-
-[[package]]
-name = "from_js_ref"
-version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68019223a84a846ec9fab2cee81adcc43357543326d816793e8302e274e40e17"
 dependencies = [
  "wasm-bindgen",
+]
+
+[[package]]
+name = "from_js_ref"
+version = "0.1.4"
+dependencies = [
+ "wasm-bindgen",
+ "wasm_refgen",
 ]
 
 [[package]]
@@ -131,9 +131,9 @@ dependencies = [
 
 [[package]]
 name = "wasm_refgen"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
- "from_js_ref 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "from_js_ref 0.1.3",
  "heck",
  "proc-macro2",
  "quote",
