@@ -1,3 +1,4 @@
+use from_js_ref::FromJsRef as _;
 use wasm_bindgen::prelude::*;
 use wasm_refgen::wasm_refgen;
 
@@ -63,6 +64,17 @@ fn js_ref_type_is_js_cast_compatible() {
     assert_castable::<JsFoo>();
 }
 
+/// The generated `FromJsRef` impl overrides `try_from_js_value` to use a
+/// duck-type check (`Reflect::has`) instead of the broken `instanceof`.
+/// We can only verify the method exists at compile time on native targets —
+/// `Reflect::has` panics outside Wasm.
+#[test]
+fn try_from_js_value_is_defined() {
+    // Compile-time proof that try_from_js_value exists with the right signature.
+    fn assert_try_from<T: from_js_ref::FromJsRef>(_f: fn(&JsValue) -> Option<T>) {}
+    assert_try_from::<WasmFoo>(WasmFoo::try_from_js_value);
+}
+
 // Repeat with a different naming convention to ensure the macro handles
 // multi-word class names correctly.
 
@@ -94,4 +106,10 @@ fn multi_word_class_name_generates_correct_types() {
 fn multi_word_class_is_js_cast_compatible() {
     fn assert_castable<T: JsCast + AsRef<JsValue>>() {}
     assert_castable::<JsCommitWithBlob>();
+}
+
+#[test]
+fn multi_word_try_from_js_value_is_defined() {
+    fn assert_try_from<T: from_js_ref::FromJsRef>(_f: fn(&JsValue) -> Option<T>) {}
+    assert_try_from::<WasmCommitWithBlob>(WasmCommitWithBlob::try_from_js_value);
 }

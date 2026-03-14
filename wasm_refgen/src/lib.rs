@@ -107,6 +107,18 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
             fn from_js_ref(castable: &Self::JsRef) -> Self {
                 castable.#method_ident()
             }
+
+            fn try_from_js_value(js_value: &::wasm_bindgen::JsValue) -> Option<Self> {
+                use ::wasm_bindgen::JsCast as _;
+
+                let key = ::wasm_bindgen::JsValue::from_str(#upcast_tag);
+                if !::js_sys::Reflect::has(js_value, &key).unwrap_or(false) {
+                    return None;
+                }
+
+                let js_ref: Self::JsRef = js_value.clone().unchecked_into();
+                Some(Self::from_js_ref(&js_ref))
+            }
         }
 
         impl From<#ty_ident> for #js_ref_ident {
@@ -421,6 +433,53 @@ mod tests {
         assert!(
             output.contains("compile_error"),
             "missing js_class must produce a compile error.\nOutput: {output}",
+        );
+    }
+
+    /// The generated `FromJsRef` impl must override `try_from_js_value` to
+    /// use a duck-type check via `Reflect::has` instead of the default
+    /// `dyn_ref` (which relies on broken `instanceof`).
+    #[test]
+    fn generates_try_from_js_value_with_duck_type_check() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
+            quote! {
+                #[wasm_bindgen(js_class = "Foo")]
+                impl WasmFoo {}
+            },
+        );
+
+        assert!(
+            output.contains("try_from_js_value"),
+            "must generate try_from_js_value override.\nOutput: {output}",
+        );
+        assert!(
+            output.contains("Reflect :: has") || output.contains("Reflect::has"),
+            "try_from_js_value must use Reflect::has for duck-type check.\nOutput: {output}",
+        );
+        assert!(
+            output.contains("__wasm_refgen_toWasmFoo"),
+            "try_from_js_value must check for the upcast tag method.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn try_from_js_value_uses_correct_tag_for_multi_word() {
+        let output = expand(
+            quote!(js_ref = JsCommitWithBlob),
+            quote! {
+                #[wasm_bindgen(js_class = "CommitWithBlob")]
+                impl WasmCommitWithBlob {}
+            },
+        );
+
+        assert!(
+            output.contains("__wasm_refgen_toWasmCommitWithBlob"),
+            "try_from_js_value must use the correct upcast tag for multi-word names.\nOutput: {output}",
+        );
+        assert!(
+            output.contains("Reflect :: has") || output.contains("Reflect::has"),
+            "must use Reflect::has.\nOutput: {output}",
         );
     }
 }
