@@ -52,28 +52,19 @@ fn generated_js_deref_impl() {
     assert_js_deref::<JsFoo>();
 }
 
-/// Verify the `JsFoo` extern type targets the correct JS class name (`Foo`,
-/// not `JsFoo`). Without `js_name = Foo` on the extern type declaration,
-/// `wasm-bindgen` would default to `JsFoo` as the JS class name, causing
-/// `instanceof` to fail at runtime.
-///
-/// We verify this indirectly: the generated `JsFoo` type satisfies
-/// `JsCast + AsRef<JsValue>`, meaning the extern type is properly wired to
-/// a JS class. The fact that `JsFoo: JsCast` compiles with `js_name = Foo`
-/// confirms the binding exists. A direct `instanceof` runtime test would
-/// require a Wasm environment.
-///
-/// This test exercises the fix from 2026-03-14 where `js_name` was added to
-/// the extern block's type declaration.
+/// The generated `JsFoo` extern type satisfies `JsCast + AsRef<JsValue>`,
+/// confirming it can be used in `dyn_ref`/`dyn_into` call sites at the
+/// type level. Note: `instanceof` checks at runtime use `JsFoo` (the Rust
+/// ident) as the JS class name, which won't match the exported struct's
+/// class. Use `FromJsRef::try_from_js_value` instead of `dyn_into`.
 #[test]
 fn js_ref_type_is_js_cast_compatible() {
-    // Compile-time proof that JsFoo can be used in dyn_ref/dyn_into call sites.
     fn assert_castable<T: JsCast + AsRef<JsValue>>() {}
     assert_castable::<JsFoo>();
 }
 
 // Repeat with a different naming convention to ensure the macro handles
-// the js_class → js_name mapping correctly for various identifiers.
+// multi-word class names correctly.
 
 #[derive(Clone)]
 #[wasm_bindgen(js_name = CommitWithBlob)]

@@ -124,7 +124,7 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
         #[::wasm_bindgen::prelude::wasm_bindgen]
         extern "C" {
             #[doc = #js_ty_doc]
-            #[::wasm_bindgen::prelude::wasm_bindgen(js_name = #js_class_ident, typescript_type = #js_class_ident)]
+            #[::wasm_bindgen::prelude::wasm_bindgen(typescript_type = #js_class_ident)]
             pub type #js_ref_ident;
 
             #[doc = #method_doc]
@@ -244,24 +244,6 @@ mod tests {
     }
 
     #[test]
-    fn extern_type_has_js_name() {
-        let output = expand(
-            quote!(js_ref = JsFoo),
-            quote! {
-                #[wasm_bindgen(js_class = "Foo")]
-                impl WasmFoo {}
-            },
-        );
-
-        assert!(
-            output.contains("js_name = Foo"),
-            "extern type declaration must include `js_name = Foo` \
-             so instanceof targets the correct JS class.\n\
-             Output: {output}",
-        );
-    }
-
-    #[test]
     fn extern_type_has_typescript_type() {
         let output = expand(
             quote!(js_ref = JsFoo),
@@ -278,8 +260,49 @@ mod tests {
         );
     }
 
+    /// The extern type must NOT have `js_name` on its type declaration.
+    /// Adding `js_name` causes a JS identifier collision with the exported
+    /// struct's class, leading wasm-bindgen to rename one to `Foo2`.
+    /// The duck-typed `FromJsRef` path works without `js_name`.
     #[test]
-    fn extern_type_js_name_matches_js_class() {
+    fn extern_type_omits_js_name_to_avoid_collision() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
+            quote! {
+                #[wasm_bindgen(js_class = "Foo")]
+                impl WasmFoo {}
+            },
+        );
+
+        // The upcast method's js_name (e.g. `js_name = "__wasm_refgen_toWasmFoo"`)
+        // is expected. What we must NOT have is `js_name = Foo` on the type decl.
+        // Check the extern type line specifically: it should have only typescript_type.
+        assert!(
+            output.contains("typescript_type = Foo"),
+            "extern type must have typescript_type.\nOutput: {output}",
+        );
+
+        // Find the wasm_bindgen attr on the type declaration (not the method).
+        // The type decl line should NOT contain `js_name = Foo`.
+        let type_attr_region = output
+            .find("pub type JsFoo")
+            .expect("must generate `pub type JsFoo`");
+        let before_type = &output[..type_attr_region];
+        let last_attr = before_type
+            .rfind("wasm_bindgen")
+            .expect("must have wasm_bindgen attr");
+        let type_attr = &output[last_attr..type_attr_region];
+
+        assert!(
+            !type_attr.contains("js_name"),
+            "extern type declaration must NOT include `js_name` — \
+             it collides with the exported struct's JS class name.\n\
+             Type attr region: {type_attr}",
+        );
+    }
+
+    #[test]
+    fn extern_type_omits_js_name_multi_word() {
         let output = expand(
             quote!(js_ref = JsCommitWithBlob),
             quote! {
@@ -288,10 +311,23 @@ mod tests {
             },
         );
 
+        let type_attr_region = output
+            .find("pub type JsCommitWithBlob")
+            .expect("must generate `pub type JsCommitWithBlob`");
+        let before_type = &output[..type_attr_region];
+        let last_attr = before_type
+            .rfind("wasm_bindgen")
+            .expect("must have wasm_bindgen attr");
+        let type_attr = &output[last_attr..type_attr_region];
+
         assert!(
-            output.contains("js_name = CommitWithBlob"),
-            "extern type `js_name` must match the `js_class` value, not the Rust ident.\n\
-             Output: {output}",
+            !type_attr.contains("js_name"),
+            "extern type must NOT have `js_name` to avoid collision with \
+             the exported struct's JS class.\nType attr region: {type_attr}",
+        );
+        assert!(
+            output.contains("typescript_type = CommitWithBlob"),
+            "extern type must have typescript_type.\nOutput: {output}",
         );
     }
 
