@@ -4,17 +4,17 @@ Utilities for working with Rust-exported `wasm-bindgen` types in JS environments
 
 ## Crates
 
-| Crate | Version | Description |
-|-------|---------|-------------|
-| [`wasm_refgen`](./wasm_refgen) | 0.2.0 | Proc-macro that generates duck-typed JS reference boilerplate for `wasm-bindgen` structs |
-| [`from_js_ref`](./from_js_ref) | 0.2.0 | Runtime traits (`FromJsRef`, `JsDeref`) for converting between JS reference types and Rust types |
+| Crate                          | Version | Description                                                                                      |
+|--------------------------------|---------|--------------------------------------------------------------------------------------------------|
+| [`wasm_refgen`](./wasm_refgen) | 0.2.0   | Proc-macro that generates duck-typed JS reference boilerplate for `wasm-bindgen` structs         |
+| [`from_js_ref`](./from_js_ref) | 0.2.0   | Runtime traits (`FromJsRef`, `JsDeref`) for converting between JS reference types and Rust types |
 
 ## Quick Start
 
 ```toml
 [dependencies]
-from_js_ref = "0.2"
-wasm_refgen = "0.2"
+from_js_ref = "0.2.0"
+wasm_refgen = "0.2.0"
 ```
 
 ```rust
