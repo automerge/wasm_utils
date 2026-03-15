@@ -1,8 +1,6 @@
 # `wasm_refgen`
 
-This package contains a macro that eases the use of Rust-exported `wasm-bindgen` types in JS settings. Specifically, it generates boilerplate that upcasts from a duck-typed JS reference to a concrete Rust type implementing that interface. The main caveat is that it assumes
-that cloning is cheap on the struct in question since you're going to clone to take
-ownership of the type on the Rust side.
+This package contains a macro that eases the use of Rust-exported `wasm-bindgen` types in JS settings. Specifically, it generates boilerplate that upcasts from a duck-typed JS reference to a concrete Rust type implementing that interface. The main caveat is that it assumes that cloning is cheap on the struct in question since you're going to clone to take ownership of the type on the Rust side.
 
 ## Motivation
 
@@ -21,6 +19,16 @@ rather than fiddling with `unchecked_into` or `dyn_into` yourself.
 
 It would be convenient to have some way to use Rust types on the Rust side, and
 have `wasm-bindgen` automatically generate reasonable types on the TS side.
+
+## Dependencies
+
+Add both crates to your `Cargo.toml`:
+
+```toml
+[dependencies]
+from_js_ref = "0.2"
+wasm_refgen = "0.2"
+```
 
 ## Example
 
@@ -72,6 +80,33 @@ this step is very cheap. Whether you pass a `JsFoo` by reference
 or by value, the cost is the same due to how `wasm-bindgen` handles
 (what it's treating as a) JS-imported type.
 
+## Converting from `JsValue`
+
+When you receive a `JsValue` and need to convert it to your Rust type,
+use `FromJsRef::try_from_js_value`:
+
+```rust
+use from_js_ref::FromJsRef;
+
+pub fn process(js_value: &JsValue) -> Result<(), MyError> {
+    let wasm_foo = WasmFoo::try_from_js_value(js_value)
+        .ok_or(MyError::UnexpectedType)?;
+    // use `wasm_foo` as normal
+    Ok(())
+}
+```
+
+This performs a duck-type check under the hood: it verifies the JS object
+has the expected upcast method via `Reflect::has`, then converts through
+the generated reference type.
+
+> [!WARNING]
+> Do _not_ use `dyn_into::<JsFoo>()` or `dyn_ref::<JsFoo>()`. These rely on
+> `instanceof`, which does not work with `wasm_refgen`-generated types. The
+> `instanceof` check targets the Rust identifier name (e.g., `JsFoo`) rather
+> than the JS class name (`Foo`), so it always fails at runtime. Use
+> `FromJsRef::try_from_js_value` instead.
+
 ## Collections
 
 ```rust
@@ -88,11 +123,15 @@ but also generates `Array<Foo>` as the TypeScript type.
 
 This strategy gains a small amount of runtime safety by renaming
 `.clone` to a special method that uses your struct's name. The duck-typed
-interface will only works if the JS object actually implements this
+interface only works if the JS object actually implements this
 uniquely named method produced by the glue code. This is not as "safe"
 as static type checking, but provides a lightweight way to ensure that
 the correct kind of object is passed over the boundary without relying
 on direct reflection.
+
+The `try_from_js_value` method leverages this same mechanism: it checks
+for the presence of the upcast method via `Reflect::has` before attempting
+the conversion. If the method is missing, it returns `None`.
 
 ## Under The Hood
 
@@ -146,4 +185,31 @@ JS/TS                │                      │
                        │  Instance #2   │
                        │                │
                        └────────────────┘
+```
+
+### `try_from_js_value` Flow
+
+When converting from a raw `JsValue`, the flow is:
+
+``` text
+  JsValue
+     │
+     ▼
+  Reflect::has(value, "__wasm_refgen_toWasmFoo")
+     │
+     ├── false → None
+     │
+     └── true
+          │
+          ▼
+     unchecked_into::<JsFoo>()
+          │
+          ▼
+     from_js_ref(&JsFoo)
+          │
+          ▼
+     calls .__wasm_refgen_to_wasm_foo()
+          │
+          ▼
+     Some(WasmFoo)
 ```

@@ -16,6 +16,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 heck = "0.5"
+js-sys = { version = "0.3", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = "2.0"
