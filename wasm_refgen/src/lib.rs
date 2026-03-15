@@ -66,7 +66,7 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
     } else {
         return syn::Error::new(
             ty_ident.span(),
-            "wasm_refgen: missing js_ref argument and no `js_class = ...` found on #[wasm_bindgen]",
+            "#[wasm_refgen] requires #[wasm_bindgen(js_class = \"...\")] on the impl block",
         )
         .to_compile_error();
     };
@@ -108,11 +108,11 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
                 castable.#method_ident()
             }
 
-            fn try_from_js_value(js_value: &::wasm_bindgen::JsValue) -> Option<Self> {
-                use ::wasm_bindgen::JsCast as _;
+            fn try_from_js_value(js_value: &::from_js_ref::__private::wasm_bindgen::JsValue) -> Option<Self> {
+                use ::from_js_ref::__private::wasm_bindgen::JsCast as _;
 
-                let key = ::wasm_bindgen::JsValue::from_str(#upcast_tag);
-                if !::js_sys::Reflect::has(js_value, &key).unwrap_or(false) {
+                let key = ::from_js_ref::__private::wasm_bindgen::JsValue::from_str(#upcast_tag);
+                if !::from_js_ref::__private::js_sys::Reflect::has(js_value, &key).unwrap_or(false) {
                     return None;
                 }
 

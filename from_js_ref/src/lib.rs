@@ -28,3 +28,10 @@ impl<T: FromJsRef> JsDeref<T> for T::JsRef {
         T::from_js_ref(self)
     }
 }
+
+/// Re-exports for use by generated code. Not part of the public API.
+#[doc(hidden)]
+pub mod __private {
+    pub use js_sys;
+    pub use wasm_bindgen;
+}

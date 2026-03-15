@@ -195,7 +195,7 @@ When converting from a raw `JsValue`, the flow is:
   JsValue
      │
      ▼
-  Reflect::has(value, "__wasm_refgen_toFoo")
+  Reflect::has(value, "__wasm_refgen_toWasmFoo")
      │
      ├── false → None
      │
