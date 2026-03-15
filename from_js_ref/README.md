@@ -17,10 +17,10 @@ pub trait FromJsRef: Sized {
 
     /// Attempt to convert from a raw `JsValue`.
     ///
-    /// The default implementation uses `dyn_ref` (instanceof).
+    /// Provided by default using `dyn_ref` (instanceof).
     /// `wasm_refgen` overrides this with a duck-type check via
     /// `Reflect::has` for reliable validation.
-    fn try_from_js_value(js_value: &JsValue) -> Option<Self>;
+    fn try_from_js_value(js_value: &JsValue) -> Option<Self> { /* ... */ }
 }
 ```
 

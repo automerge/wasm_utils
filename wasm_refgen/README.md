@@ -208,7 +208,7 @@ When converting from a raw `JsValue`, the flow is:
      from_js_ref(&JsFoo)
           │
           ▼
-     calls .__wasm_refgen_to_foo()
+     calls .__wasm_refgen_to_wasm_foo()
           │
           ▼
      Some(WasmFoo)
