@@ -142,3 +142,13 @@ dependencies = [
  "syn",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "wasm_trait"
+version = "0.1.0"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
