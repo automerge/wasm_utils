@@ -1,0 +1,11 @@
+[package]
+name = "wasm_trait_tests"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }

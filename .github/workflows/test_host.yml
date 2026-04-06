@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -22,6 +26,9 @@ jobs:
 
     - name: Test workspace
       run: cargo test --workspace --verbose
+
+    - name: Test workspace (all features)
+      run: cargo test --workspace --all-features --verbose
 
     - name: Run Doc Tests
       run: cargo test --doc --workspace
