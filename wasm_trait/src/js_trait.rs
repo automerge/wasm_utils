@@ -279,6 +279,44 @@ fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
                 .to_compile_error(),
             );
         }
+
+        // Reject method-level generics (wasm_bindgen can't import/export generic fns)
+        if !mi.method.sig.generics.params.is_empty() {
+            return Some(
+                syn::Error::new(
+                    mi.method.sig.generics.span(),
+                    "js_trait methods cannot have generic parameters \
+                     (wasm_bindgen does not support generic functions)",
+                )
+                .to_compile_error(),
+            );
+        }
+        if mi.method.sig.generics.where_clause.is_some() {
+            return Some(
+                syn::Error::new(
+                    mi.method.sig.generics.where_clause.span(),
+                    "js_trait methods cannot have where clauses \
+                     (wasm_bindgen does not support generic functions)",
+                )
+                .to_compile_error(),
+            );
+        }
+
+        // Reject non-ident arg patterns (destructuring, wildcards, etc.)
+        for arg in &mi.method.sig.inputs {
+            if let FnArg::Typed(pat_type) = arg {
+                if !matches!(pat_type.pat.as_ref(), syn::Pat::Ident(_)) {
+                    return Some(
+                        syn::Error::new(
+                            pat_type.pat.span(),
+                            "js_trait method arguments must be simple identifiers, \
+                             not destructuring patterns or wildcards",
+                        )
+                        .to_compile_error(),
+                    );
+                }
+            }
+        }
     }
 
     None
@@ -1002,6 +1040,63 @@ mod tests {
         assert!(
             output.contains("compile_error"),
             "owned self must produce a compile error.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_generic_method() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "put")]
+                    fn js_put<T>(&self, value: T);
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("compile_error"),
+            "generic methods must produce a compile error.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_method_where_clause() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "put")]
+                    fn js_put(&self, value: u32) where Self: Clone;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("compile_error"),
+            "method where clauses must produce a compile error.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_destructuring_pattern() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "put")]
+                    fn js_put(&self, (a, b): (u32, u32));
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("compile_error"),
+            "destructuring patterns must produce a compile error.\nOutput: {output}",
         );
         Ok(())
     }
