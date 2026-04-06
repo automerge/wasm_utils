@@ -2,6 +2,9 @@
 name = "from_js_ref"
 version = "0.2.0"
 description = "Trait for converting from JS interface reference wrappers"
+readme = "../from_js_ref/README.md"
+keywords = ["wasm", "wasm-bindgen", "js"]
+categories = ["wasm"]
 
 authors.workspace = true
 license.workspace = true

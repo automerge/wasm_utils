@@ -3,6 +3,8 @@ name = "wasm_refgen"
 version = "0.2.0"
 description = "Macro for generating JS interface reference hack for wasm-bindgen"
 readme = "./README.md"
+keywords = ["wasm", "wasm-bindgen", "proc-macro"]
+categories = ["wasm"]
 
 authors.workspace = true
 license.workspace = true

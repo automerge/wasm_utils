@@ -17,7 +17,7 @@ use crate::shared::{
 };
 
 /// Core implementation of `#[wasm_implements]`.
-pub fn wasm_implements_impl(trait_path: Path, mut impl_block: ItemImpl) -> TokenStream {
+pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) -> TokenStream {
     // Reject trait impls — we need an inherent impl
     if let Some((_, path, _)) = &impl_block.trait_ {
         return syn::Error::new(
@@ -121,7 +121,7 @@ mod tests {
     fn expand(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStream) -> String {
         let trait_path: Path = syn::parse2(attr).expect("failed to parse trait path");
         let impl_block: ItemImpl = syn::parse2(item).expect("failed to parse impl block");
-        wasm_implements_impl(trait_path, impl_block).to_string()
+        wasm_implements_impl(&trait_path, impl_block).to_string()
     }
 
     #[test]

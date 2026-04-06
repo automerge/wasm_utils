@@ -9,7 +9,7 @@ use quote::quote;
 use syn::{FnArg, ImplItemFn, ReturnType, Signature};
 
 /// Extract argument names from a method signature, skipping `self`.
-pub fn arg_names(sig: &Signature) -> Vec<TokenStream> {
+pub(crate) fn arg_names(sig: &Signature) -> Vec<TokenStream> {
     sig.inputs
         .iter()
         .filter_map(|arg| match arg {
@@ -23,7 +23,7 @@ pub fn arg_names(sig: &Signature) -> Vec<TokenStream> {
 }
 
 /// Whether the method has a `&self` receiver.
-pub fn has_self_receiver(sig: &Signature) -> bool {
+pub(crate) fn has_self_receiver(sig: &Signature) -> bool {
     sig.inputs
         .iter()
         .any(|arg| matches!(arg, FnArg::Receiver(_)))
@@ -35,8 +35,8 @@ pub fn has_self_receiver(sig: &Signature) -> bool {
 /// `fn foo(&self, x: T) -> impl ::core::future::Future<Output = R> + '_`
 ///
 /// Non-async signatures are returned unchanged.
-pub fn to_rpitit_signature(sig: &Signature) -> Signature {
-    if !sig.asyncness.is_some() {
+pub(crate) fn to_rpitit_signature(sig: &Signature) -> Signature {
+    if sig.asyncness.is_none() {
         return sig.clone();
     }
 
@@ -59,6 +59,6 @@ pub fn to_rpitit_signature(sig: &Signature) -> Signature {
 }
 
 /// Whether a method is `pub`.
-pub fn is_pub(method: &ImplItemFn) -> bool {
+pub(crate) const fn is_pub(method: &ImplItemFn) -> bool {
     matches!(method.vis, syn::Visibility::Public(_))
 }

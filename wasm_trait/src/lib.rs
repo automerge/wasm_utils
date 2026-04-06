@@ -56,7 +56,7 @@ mod wasm_implements;
 pub fn js_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as js_trait::JsTraitArgs);
     let trait_def = parse_macro_input!(item as ItemTrait);
-    js_trait::js_trait_impl(args, trait_def).into()
+    js_trait::js_trait_impl(args, &trait_def).into()
 }
 
 /// Compile-time check that a `#[wasm_bindgen]` impl block conforms to a trait.
@@ -78,5 +78,5 @@ pub fn js_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn wasm_implements(attr: TokenStream, item: TokenStream) -> TokenStream {
     let trait_path = parse_macro_input!(attr as Path);
     let impl_block = parse_macro_input!(item as ItemImpl);
-    wasm_implements::wasm_implements_impl(trait_path, impl_block).into()
+    wasm_implements::wasm_implements_impl(&trait_path, impl_block).into()
 }

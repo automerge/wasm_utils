@@ -8,14 +8,13 @@ use syn::Type;
 /// Map a Rust type to its TypeScript representation.
 ///
 /// Returns `None` for types that can't be automatically mapped.
-pub fn rust_type_to_ts(ty: &Type) -> String {
+pub(crate) fn rust_type_to_ts(ty: &Type) -> String {
     match ty {
         Type::Tuple(tuple) if tuple.elems.is_empty() => "void".into(),
 
         Type::Path(type_path) => {
-            let seg = match type_path.path.segments.last() {
-                Some(s) => s,
-                None => return "any".into(),
+            let Some(seg) = type_path.path.segments.last() else {
+                return "any".into();
             };
 
             let name = seg.ident.to_string();
@@ -103,7 +102,7 @@ pub fn rust_type_to_ts(ty: &Type) -> String {
 ///
 /// `Result<T, E>` → `Promise<T_ts>` (rejection represents E).
 /// `()` → `Promise<void>`.
-pub fn async_return_to_ts(ty: &Type) -> String {
+pub(crate) fn async_return_to_ts(ty: &Type) -> String {
     let inner = rust_type_to_ts(ty);
     alloc::format!("Promise<{inner}>")
 }
@@ -112,7 +111,7 @@ pub fn async_return_to_ts(ty: &Type) -> String {
 ///
 /// For sync methods, maps the type directly.
 /// For sync methods returning `()`, maps to `void`.
-pub fn sync_return_to_ts(ret: &syn::ReturnType) -> String {
+pub(crate) fn sync_return_to_ts(ret: &syn::ReturnType) -> String {
     match ret {
         syn::ReturnType::Default => "void".into(),
         syn::ReturnType::Type(_, ty) => rust_type_to_ts(ty),

@@ -3,7 +3,7 @@
 //! Placed on a Rust trait definition, generates:
 //! 1. `typescript_custom_section` with a precise TS interface
 //! 2. `extern "C"` block with `#[wasm_bindgen]` bindings
-//! 3. Rust trait (wasm_bindgen attrs stripped, `async` → RPITIT)
+//! 3. Rust trait (`wasm_bindgen` attrs stripped, `async` → RPITIT)
 //! 4. `impl Trait for ExternType` (sync delegation + async `JsFuture` + `unchecked_into`)
 
 use alloc::{
@@ -28,7 +28,7 @@ use crate::shared::{
 };
 
 /// Parsed arguments to `#[js_trait(js_type = JsTransport, js_name = Transport)]`.
-pub struct JsTraitArgs {
+pub(crate) struct JsTraitArgs {
     /// Required: Rust ident for the generated extern type.
     pub js_type: Ident,
     /// Optional: JS/TS interface name. Defaults to the trait name.
@@ -36,7 +36,7 @@ pub struct JsTraitArgs {
 }
 
 impl Parse for JsTraitArgs {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut js_type: Option<Ident> = None;
         let mut js_name: Option<String> = None;
 
@@ -117,7 +117,7 @@ struct MethodInfo<'a> {
     js_name: Option<String>,
 }
 
-/// Extract the `js_name` value from wasm_bindgen attrs on a trait method.
+/// Extract the `js_name` value from `wasm_bindgen` attrs on a trait method.
 fn extract_js_name(method: &TraitItemFn) -> Option<String> {
     for attr in &method.attrs {
         if !attr.path().is_ident("wasm_bindgen") {
@@ -142,7 +142,7 @@ fn extract_js_name(method: &TraitItemFn) -> Option<String> {
     None
 }
 
-/// Collect wasm_bindgen meta items from a method's attrs.
+/// Collect `wasm_bindgen` meta items from a method's attrs.
 fn collect_wb_meta(method: &TraitItemFn) -> Vec<syn::Meta> {
     let mut result = Vec::new();
     for attr in &method.attrs {
@@ -161,38 +161,71 @@ fn collect_wb_meta(method: &TraitItemFn) -> Vec<syn::Meta> {
 }
 
 /// Core implementation of `#[js_trait]`.
-pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
+pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenStream {
     let trait_name = &trait_def.ident;
     let trait_vis = &trait_def.vis;
     let js_type_ident = &args.js_type;
     let ts_interface_name = args.js_name.unwrap_or_else(|| trait_name.to_string());
 
-    // Validate: no generics
-    if !trait_def.generics.params.is_empty() {
-        return syn::Error::new(
-            trait_def.generics.span(),
-            "js_trait does not support generic traits",
-        )
-        .to_compile_error();
+    if let Some(err) = validate_trait(trait_def) {
+        return err;
     }
 
-    // Validate: no associated types or constants
+    let methods: Vec<MethodInfo<'_>> = parse_methods(trait_def);
+
+    if let Some(err) = validate_methods(&methods) {
+        return err;
+    }
+
+    let ts_section = gen_ts_section(trait_name, &ts_interface_name, &methods);
+    let extern_block = gen_extern_block(trait_vis, js_type_ident, &ts_interface_name, &methods);
+    let trait_output = gen_trait_def(trait_def, &methods);
+    let impl_block = gen_impl_block(trait_name, js_type_ident, &methods);
+
+    quote! {
+        #ts_section
+        #extern_block
+        #trait_output
+        #impl_block
+    }
+}
+
+/// Validate that the trait has no generics, associated types, or associated constants.
+fn validate_trait(trait_def: &ItemTrait) -> Option<TokenStream> {
+    if !trait_def.generics.params.is_empty() {
+        return Some(
+            syn::Error::new(
+                trait_def.generics.span(),
+                "js_trait does not support generic traits",
+            )
+            .to_compile_error(),
+        );
+    }
+
     for item in &trait_def.items {
         match item {
             TraitItem::Type(t) => {
-                return syn::Error::new(t.span(), "js_trait does not support associated types")
-                    .to_compile_error();
+                return Some(
+                    syn::Error::new(t.span(), "js_trait does not support associated types")
+                        .to_compile_error(),
+                );
             }
             TraitItem::Const(c) => {
-                return syn::Error::new(c.span(), "js_trait does not support associated constants")
-                    .to_compile_error();
+                return Some(
+                    syn::Error::new(c.span(), "js_trait does not support associated constants")
+                        .to_compile_error(),
+                );
             }
             _ => {}
         }
     }
 
-    // Parse all methods
-    let methods: Vec<MethodInfo> = trait_def
+    None
+}
+
+/// Parse all trait items into `MethodInfo` records.
+fn parse_methods(trait_def: &ItemTrait) -> Vec<MethodInfo<'_>> {
+    trait_def
         .items
         .iter()
         .filter_map(|item| {
@@ -210,10 +243,12 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
                 None
             }
         })
-        .collect();
+        .collect()
+}
 
-    // Validate: async methods must return Result
-    for mi in &methods {
+/// Validate that async methods return `Result` and receivers are `&self` only.
+fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
+    for mi in methods {
         if mi.is_async {
             let returns_result = match &mi.method.sig.output {
                 ReturnType::Type(_, ty) => {
@@ -221,7 +256,7 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
                         tp.path
                             .segments
                             .last()
-                            .map_or(false, |seg| seg.ident == "Result")
+                            .is_some_and(|seg| seg.ident == "Result")
                     } else {
                         false
                     }
@@ -230,39 +265,46 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
             };
 
             if !returns_result {
-                return syn::Error::new(
-                    mi.method.sig.span(),
-                    "js_trait async methods must return Result (JS promises can reject)",
-                )
-                .to_compile_error();
+                return Some(
+                    syn::Error::new(
+                        mi.method.sig.span(),
+                        "js_trait async methods must return Result (JS promises can reject)",
+                    )
+                    .to_compile_error(),
+                );
             }
         }
-    }
 
-    // Validate: only &self or no receiver
-    for mi in &methods {
         for arg in &mi.method.sig.inputs {
             if let FnArg::Receiver(recv) = arg {
                 if recv.reference.is_none() || recv.mutability.is_some() {
-                    return syn::Error::new(
-                        recv.span(),
-                        "js_trait methods must use `&self` or no receiver",
-                    )
-                    .to_compile_error();
+                    return Some(
+                        syn::Error::new(
+                            recv.span(),
+                            "js_trait methods must use `&self` or no receiver",
+                        )
+                        .to_compile_error(),
+                    );
                 }
             }
         }
     }
 
-    // ── 1. TypeScript custom section ──────────────────────────────
+    None
+}
 
+/// Generate the `typescript_custom_section` constant.
+fn gen_ts_section(
+    trait_name: &Ident,
+    ts_interface_name: &str,
+    methods: &[MethodInfo<'_>],
+) -> TokenStream {
     let ts_methods: Vec<String> = methods
         .iter()
         .map(|mi| {
             let default_name = mi.method.sig.ident.to_string();
             let method_name = mi.js_name.as_deref().unwrap_or(&default_name);
 
-            // Build TS parameter list
             let ts_params: Vec<String> = mi
                 .method
                 .sig
@@ -284,7 +326,6 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
 
             let params_str = ts_params.join(", ");
 
-            // Build TS return type
             let ts_return = if mi.is_async {
                 async_return_to_ts(match &mi.method.sig.output {
                     ReturnType::Type(_, ty) => ty,
@@ -306,33 +347,35 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
         trait_name.span(),
     );
 
-    let ts_section = quote! {
+    quote! {
         #[wasm_bindgen(typescript_custom_section)]
         const #ts_const_name: &str = #ts_section_str;
-    };
+    }
+}
 
-    // ── 2. extern "C" block ──────────────────────────────────────
-
+/// Generate the `extern "C"` block with `wasm_bindgen` bindings.
+fn gen_extern_block(
+    trait_vis: &syn::Visibility,
+    js_type_ident: &Ident,
+    ts_interface_name: &str,
+    methods: &[MethodInfo<'_>],
+) -> TokenStream {
     let extern_fns: Vec<TokenStream> = methods
         .iter()
         .map(|mi| {
             let method_name = &mi.method.sig.ident;
             let extern_name = extern_fn_ident(method_name);
 
-            // Collect wasm_bindgen meta items
             let mut wb_metas: Vec<TokenStream> = Vec::new();
 
-            // Add `method` if has &self
             if mi.has_self {
                 wb_metas.push(quote!(method));
             }
 
-            // Forward existing wasm_bindgen attrs
             for meta in collect_wb_meta(mi.method) {
                 wb_metas.push(quote!(#meta));
             }
 
-            // Build parameter list: this: &JsType for &self methods
             let params: Vec<TokenStream> = mi
                 .method
                 .sig
@@ -350,7 +393,6 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
                 })
                 .collect();
 
-            // Return type: async → Promise, otherwise passthrough
             let ret = if mi.is_async {
                 quote!(-> ::js_sys::Promise)
             } else {
@@ -367,7 +409,7 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
         })
         .collect();
 
-    let extern_block = quote! {
+    quote! {
         #[wasm_bindgen]
         extern "C" {
             #[wasm_bindgen(typescript_type = #ts_interface_name)]
@@ -375,9 +417,13 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
 
             #(#extern_fns)*
         }
-    };
+    }
+}
 
-    // ── 3. Rust trait (cleaned up) ───────────────────────────────
+/// Generate the cleaned-up Rust trait definition.
+fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStream {
+    let trait_name = &trait_def.ident;
+    let trait_vis = &trait_def.vis;
 
     let trait_methods: Vec<TokenStream> = methods
         .iter()
@@ -396,7 +442,7 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
     let trait_supertraits = &trait_def.supertraits;
     let colon_token = trait_def.colon_token;
 
-    let trait_output = if trait_supertraits.is_empty() {
+    if trait_supertraits.is_empty() {
         quote! {
             #(#trait_attrs)*
             #trait_vis trait #trait_name {
@@ -410,10 +456,15 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
                 #(#trait_methods)*
             }
         }
-    };
+    }
+}
 
-    // ── 4. impl Trait for ExternType ─────────────────────────────
-
+/// Generate the `impl Trait for ExternType` block.
+fn gen_impl_block(
+    trait_name: &Ident,
+    js_type_ident: &Ident,
+    methods: &[MethodInfo<'_>],
+) -> TokenStream {
     let impl_methods: Vec<TokenStream> = methods
         .iter()
         .map(|mi| {
@@ -423,43 +474,8 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
             let arg_names: Vec<_> = arg_names(&mi.method.sig);
 
             if mi.is_async {
-                // Async: wrap with JsFuture + unchecked_into
-                let extern_call = if mi.has_self {
-                    quote! { #extern_name(self, #(#arg_names),*) }
-                } else {
-                    quote! { #extern_name(#(#arg_names),*) }
-                };
-
-                // Extract Ok and Err types from Result<T, E>
-                let (ok_ty, _err_ty) = extract_result_types(&mi.method.sig.output);
-
-                let ok_conversion = if is_unit_type(&ok_ty) {
-                    quote! { ::core::result::Result::Ok(()) }
-                } else {
-                    quote! {
-                        ::core::result::Result::Ok(
-                            ::wasm_bindgen::JsCast::unchecked_into(__v)
-                        )
-                    }
-                };
-
-                quote! {
-                    #rpitit_sig {
-                        async move {
-                            let __promise = #extern_call;
-                            match ::wasm_bindgen_futures::JsFuture::from(__promise).await {
-                                ::core::result::Result::Ok(__v) => #ok_conversion,
-                                ::core::result::Result::Err(__e) => {
-                                    ::core::result::Result::Err(
-                                        ::wasm_bindgen::JsCast::unchecked_into(__e)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                gen_async_impl_method(mi, &extern_name, &rpitit_sig, &arg_names)
             } else {
-                // Sync: direct delegation
                 let call = if mi.has_self {
                     quote! { #extern_name(self, #(#arg_names),*) }
                 } else {
@@ -475,19 +491,52 @@ pub fn js_trait_impl(args: JsTraitArgs, trait_def: ItemTrait) -> TokenStream {
         })
         .collect();
 
-    let impl_block = quote! {
+    quote! {
         impl #trait_name for #js_type_ident {
             #(#impl_methods)*
         }
+    }
+}
+
+/// Generate an async impl method body with `JsFuture` + `unchecked_into`.
+fn gen_async_impl_method(
+    mi: &MethodInfo<'_>,
+    extern_name: &Ident,
+    rpitit_sig: &syn::Signature,
+    arg_names: &[TokenStream],
+) -> TokenStream {
+    let extern_call = if mi.has_self {
+        quote! { #extern_name(self, #(#arg_names),*) }
+    } else {
+        quote! { #extern_name(#(#arg_names),*) }
     };
 
-    // ── Combine everything ───────────────────────────────────────
+    let (ok_ty, _err_ty) = extract_result_types(&mi.method.sig.output);
+
+    let ok_conversion = if is_unit_type(&ok_ty) {
+        quote! { ::core::result::Result::Ok(()) }
+    } else {
+        quote! {
+            ::core::result::Result::Ok(
+                ::wasm_bindgen::JsCast::unchecked_into(__v)
+            )
+        }
+    };
 
     quote! {
-        #ts_section
-        #extern_block
-        #trait_output
-        #impl_block
+        #rpitit_sig {
+            async move {
+                let __promise = #extern_call;
+                match ::wasm_bindgen_futures::JsFuture::from(__promise).await {
+                    ::core::result::Result::Ok(__v) => #ok_conversion,
+                    ::core::result::Result::Err(__e) => {
+                        ::core::result::Result::Err(
+                            ::wasm_bindgen::JsCast::unchecked_into(__e)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -528,7 +577,7 @@ mod tests {
     fn expand(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStream) -> String {
         let args: JsTraitArgs = syn::parse2(attr).expect("failed to parse js_trait args");
         let trait_def: ItemTrait = syn::parse2(item).expect("failed to parse trait");
-        js_trait_impl(args, trait_def).to_string()
+        js_trait_impl(args, &trait_def).to_string()
     }
 
     #[test]
