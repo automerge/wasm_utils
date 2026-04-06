@@ -122,6 +122,27 @@ fn extract_js_name(method: &TraitItemFn) -> Option<String> {
     extract_js_name_from_attrs(&method.attrs)
 }
 
+/// Check whether a trait method has `#[wasm_bindgen(catch)]`.
+fn has_catch_attr(method: &TraitItemFn) -> bool {
+    for attr in &method.attrs {
+        if !attr.path().is_ident("wasm_bindgen") {
+            continue;
+        }
+        if let Ok(nested) =
+            attr.parse_args_with(Punctuated::<syn::Meta, Token![,]>::parse_terminated)
+        {
+            for meta in &nested {
+                if let syn::Meta::Path(p) = meta {
+                    if p.is_ident("catch") {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Collect `wasm_bindgen` meta items from a method's attrs.
 fn collect_wb_meta(method: &TraitItemFn) -> Vec<syn::Meta> {
     let mut result = Vec::new();
@@ -249,6 +270,21 @@ fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
                     syn::Error::new(
                         mi.method.sig.span(),
                         "js_trait async methods must return Result (JS promises can reject)",
+                    )
+                    .to_compile_error(),
+                );
+            }
+
+            // Reject catch on async methods — catch is for synchronous JS throws,
+            // async methods handle errors via Promise rejection instead.
+            if has_catch_attr(mi.method) {
+                return Some(
+                    syn::Error::new(
+                        mi.method.sig.span(),
+                        "js_trait async methods cannot use `catch` — \
+                         async methods handle JS errors via Promise rejection, \
+                         not synchronous throw. Remove `catch` from the \
+                         #[wasm_bindgen] attribute.",
                     )
                     .to_compile_error(),
                 );
@@ -382,7 +418,7 @@ fn gen_ts_section(
     );
 
     quote! {
-        #[wasm_bindgen(typescript_custom_section)]
+        #[::wasm_bindgen::prelude::wasm_bindgen(typescript_custom_section)]
         const #ts_const_name: &str = #ts_section_str;
     }
 }
@@ -437,16 +473,16 @@ fn gen_extern_block(
             };
 
             quote! {
-                #[wasm_bindgen(#(#wb_metas),*)]
+                #[::wasm_bindgen::prelude::wasm_bindgen(#(#wb_metas),*)]
                 fn #extern_name(#(#params),*) #ret;
             }
         })
         .collect();
 
     quote! {
-        #[wasm_bindgen]
+        #[::wasm_bindgen::prelude::wasm_bindgen]
         extern "C" {
-            #[wasm_bindgen(typescript_type = #ts_interface_name)]
+            #[::wasm_bindgen::prelude::wasm_bindgen(typescript_type = #ts_interface_name)]
             #trait_vis type #js_type_ident;
 
             #(#extern_fns)*
@@ -1078,6 +1114,25 @@ mod tests {
         assert!(
             output.contains("compile_error"),
             "method where clauses must produce a compile error.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_catch_with_async() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(catch, js_name = "fetch")]
+                    async fn js_fetch(&self) -> Result<JsValue, JsValue>;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("compile_error"),
+            "catch on async must produce a compile error.\nOutput: {output}",
         );
         Ok(())
     }

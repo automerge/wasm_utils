@@ -127,7 +127,7 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
     }
 
     let tag_method: syn::ImplItemFn = syn::parse_quote! {
-        #[wasm_bindgen(js_name = #tag_js_name)]
+        #[::wasm_bindgen::prelude::wasm_bindgen(js_name = #tag_js_name)]
         pub fn #tag_rust_name(&self) -> bool {
             true
         }
