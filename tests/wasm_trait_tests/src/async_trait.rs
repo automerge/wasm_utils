@@ -45,3 +45,35 @@ fn mixed_sync_async() {
     }
     let _ = use_storage::<JsStorage>;
 }
+
+// ── Typed error types ────────────────────────────────────────────
+
+/// Async methods can use `js_sys::Error` as the error type instead of `JsValue`.
+#[js_trait(js_type = JsTypedApi)]
+pub trait TypedApi {
+    #[wasm_bindgen(js_name = "fetchData")]
+    async fn js_fetch_data(&self) -> Result<js_sys::Uint8Array, js_sys::Error>;
+
+    #[wasm_bindgen(js_name = "send")]
+    async fn js_send(&self, data: js_sys::Uint8Array) -> Result<(), js_sys::Error>;
+
+    #[wasm_bindgen(js_name = "fetchAny")]
+    async fn js_fetch_any(&self) -> Result<JsValue, JsValue>;
+}
+
+/// Typed error types compile correctly.
+#[test]
+fn typed_error_compiles() {
+    fn assert_trait<T: TypedApi>() {}
+    assert_trait::<JsTypedApi>();
+}
+
+/// Typed errors work in generic bounds.
+#[test]
+fn typed_error_in_generic_context() {
+    fn use_api<T: TypedApi>(t: &T) {
+        let _fut = t.js_fetch_data();
+        let _fut2 = t.js_send(js_sys::Uint8Array::new_with_length(0));
+    }
+    let _ = use_api::<JsTypedApi>;
+}
