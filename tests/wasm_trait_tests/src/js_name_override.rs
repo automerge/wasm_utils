@@ -1,6 +1,5 @@
 //! Test: `js_name` parameter overrides the TS interface name.
 
-use wasm_bindgen::prelude::*;
 use wasm_trait::js_trait;
 
 #[js_trait(js_type = JsLogger, js_name = ConsoleLogger)]
@@ -15,6 +14,6 @@ pub trait Logger {
 /// The extern type exists and implements the trait.
 #[test]
 fn js_name_override_compiles() {
-    fn assert_trait<T: Logger + JsCast>() {}
+    fn assert_trait<T: Logger + ::wasm_bindgen::JsCast>() {}
     assert_trait::<JsLogger>();
 }

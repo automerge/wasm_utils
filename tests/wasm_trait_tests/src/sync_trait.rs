@@ -1,6 +1,5 @@
 //! Test: `#[js_trait]` with sync methods generates valid code.
 
-use wasm_bindgen::prelude::*;
 use wasm_trait::js_trait;
 
 #[js_trait(js_type = JsCounter)]
@@ -18,7 +17,7 @@ pub trait Counter {
 /// The extern type `JsCounter` exists and implements `JsCast`.
 #[test]
 fn extern_type_is_js_cast() {
-    fn assert_js_cast<T: JsCast>() {}
+    fn assert_js_cast<T: ::wasm_bindgen::JsCast>() {}
     assert_js_cast::<JsCounter>();
 }
 

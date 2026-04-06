@@ -477,7 +477,6 @@ fn mixed_js_interface_const_correct() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 pub mod inner_module {
-    use wasm_bindgen::prelude::*;
     use wasm_trait::js_trait;
 
     #[js_trait(js_type = JsInnerTrait)]
