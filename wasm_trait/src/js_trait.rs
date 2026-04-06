@@ -3,7 +3,7 @@
 //! Placed on a Rust trait definition, generates:
 //! 1. `typescript_custom_section` with a precise TS interface
 //! 2. `extern "C"` block with `#[wasm_bindgen]` bindings
-//! 3. Rust trait (`wasm_bindgen` attrs stripped, `async` → RPITIT)
+//! 3. Rust trait (`wasm_bindgen` attrs stripped, `async fn` preserved)
 //! 4. `impl Trait for ExternType` (sync delegation + async `JsFuture` + `unchecked_into`)
 
 use alloc::{
@@ -429,11 +429,15 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         .iter()
         .map(|mi| {
             let clean_attrs = strip_wasm_bindgen(&mi.method.attrs);
-            let rpitit_sig = to_rpitit_signature(&mi.method.sig);
+            // Keep async fn as-is in the trait (don't transform to RPITIT).
+            // async fn in traits is stable since Rust 1.75, and since this
+            // is Wasm-only (single-threaded), !Send is fine.
+            // Implementors can use either `async fn` or `-> impl Future`.
+            let sig = &mi.method.sig;
 
             quote! {
                 #(#clean_attrs)*
-                #rpitit_sig;
+                #sig;
             }
         })
         .collect();
@@ -740,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn async_method_uses_rpitit_in_trait() {
+    fn async_method_stays_async_in_trait() {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -758,12 +762,12 @@ mod tests {
         let trait_section = &output[trait_start..trait_end];
 
         assert!(
-            trait_section.contains("Future"),
-            "async trait methods must use RPITIT.\nTrait: {trait_section}",
+            trait_section.contains("async"),
+            "async trait methods must keep async fn in trait.\nTrait: {trait_section}",
         );
         assert!(
-            !trait_section.contains("async"),
-            "trait must not have async keyword.\nTrait: {trait_section}",
+            !trait_section.contains("Future"),
+            "trait must use async fn, not RPITIT.\nTrait: {trait_section}",
         );
     }
 
@@ -949,6 +953,372 @@ mod tests {
         assert!(
             extern_section.contains("catch"),
             "catch must be forwarded to extern fn.\nExtern: {extern_section}",
+        );
+    }
+
+    /// Extract the substring from `start` to `end` (exclusive).
+    fn between<'a>(output: &'a str, start: &str, end: &str) -> &'a str {
+        let s = output
+            .find(start)
+            .unwrap_or_else(|| panic!("start marker not found: {start}"));
+        let e = output[s..].find(end).map(|i| i + s).unwrap_or(output.len());
+        &output[s..e]
+    }
+
+    /// Extract from `start` to the end of the string.
+    fn from<'a>(output: &'a str, start: &str) -> &'a str {
+        let s = output
+            .find(start)
+            .unwrap_or_else(|| panic!("start marker not found: {start}"));
+        &output[s..]
+    }
+
+    // ------------------------------------------------------------------
+    // Full expansion inspection tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn full_sync_expansion() {
+        let output = expand(
+            quote!(js_type = JsCounter),
+            quote! {
+                pub trait Counter {
+                    fn get_count(&self) -> u32;
+                    fn set_count(&self, value: u32);
+                }
+            },
+        );
+
+        // -- TS section --
+        let ts = between(&output, "__WASM_TRAIT_TS_COUNTER", "extern \"C\"");
+        assert!(
+            ts.contains("export interface Counter"),
+            "TS must declare interface Counter.\nTS: {ts}",
+        );
+        assert!(
+            ts.contains("get_count(): number;"),
+            "TS must map u32 → number for get_count.\nTS: {ts}",
+        );
+        assert!(
+            ts.contains("set_count(value: number): void;"),
+            "TS must map set_count(u32) → void.\nTS: {ts}",
+        );
+
+        // -- Extern block --
+        let ext = between(&output, "extern \"C\"", "pub trait Counter");
+        assert!(
+            ext.contains("typescript_type = \"Counter\""),
+            "extern type must set typescript_type.\nExtern: {ext}",
+        );
+        assert!(
+            ext.contains("type JsCounter"),
+            "extern must declare JsCounter type.\nExtern: {ext}",
+        );
+        // Both methods are instance methods → must have `method` attr
+        assert!(
+            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_get_count"),
+            "get_count extern must have method attr.\nExtern: {ext}",
+        );
+        assert!(
+            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_set_count"),
+            "set_count extern must have method attr.\nExtern: {ext}",
+        );
+        // Both must have `this` parameter
+        assert!(
+            ext.contains("this : & JsCounter"),
+            "instance extern fns must have `this` param.\nExtern: {ext}",
+        );
+
+        // -- Trait definition --
+        let tr = between(&output, "pub trait Counter", "impl Counter for JsCounter");
+        assert!(
+            !tr.contains("wasm_bindgen"),
+            "trait must not contain wasm_bindgen.\nTrait: {tr}",
+        );
+        assert!(
+            tr.contains("fn get_count (& self) -> u32"),
+            "trait must declare get_count with &self.\nTrait: {tr}",
+        );
+        assert!(
+            tr.contains("fn set_count (& self , value : u32)"),
+            "trait must declare set_count with &self.\nTrait: {tr}",
+        );
+
+        // -- Impl block --
+        let imp = from(&output, "impl Counter for JsCounter");
+        assert!(
+            imp.contains("self . __wasm_trait_get_count ()"),
+            "impl must delegate via self.method() syntax, not free fn.\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("self . __wasm_trait_set_count (value)"),
+            "impl must delegate set_count via self.method() syntax.\nImpl: {imp}",
+        );
+    }
+
+    #[test]
+    fn full_async_expansion() {
+        let output = expand(
+            quote!(js_type = JsStore),
+            quote! {
+                pub trait Store {
+                    #[wasm_bindgen(js_name = "save")]
+                    async fn js_save(&self, data: Uint8Array) -> Result<Uint8Array, JsValue>;
+                }
+            },
+        );
+
+        // -- TS section --
+        let ts = between(&output, "__WASM_TRAIT_TS_STORE", "extern \"C\"");
+        assert!(
+            ts.contains("save(data: Uint8Array): Promise<Uint8Array>;"),
+            "TS must use js_name and map async Result<Uint8Array> → Promise<Uint8Array>.\nTS: {ts}",
+        );
+
+        // -- Extern block --
+        let ext = between(&output, "extern \"C\"", "pub trait Store");
+        assert!(
+            ext.contains("js_name = \"save\""),
+            "extern must forward js_name.\nExtern: {ext}",
+        );
+        assert!(
+            ext.contains("-> :: js_sys :: Promise"),
+            "async extern fn must return Promise, not Result.\nExtern: {ext}",
+        );
+        assert!(
+            !ext.contains("Result"),
+            "extern fn must not mention Result.\nExtern: {ext}",
+        );
+        assert!(
+            ext.contains("method"),
+            "instance extern fn must have method attr.\nExtern: {ext}",
+        );
+
+        // -- Trait definition (async fn, not RPITIT) --
+        let tr = between(&output, "pub trait Store", "impl Store for JsStore");
+        assert!(
+            tr.contains("async"),
+            "trait must keep async fn.\nTrait: {tr}",
+        );
+        assert!(
+            !tr.contains("impl :: core :: future :: Future"),
+            "trait must use async fn, not RPITIT.\nTrait: {tr}",
+        );
+        assert!(
+            tr.contains("Result < Uint8Array , JsValue >"),
+            "async trait method must have the original Result return type.\nTrait: {tr}",
+        );
+
+        // -- Impl block --
+        let imp = from(&output, "impl Store for JsStore");
+        assert!(
+            imp.contains("JsFuture :: from (__promise)"),
+            "impl must use JsFuture.\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("unchecked_into (__v)"),
+            "impl Ok arm must use unchecked_into for non-unit type.\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("unchecked_into (__e)"),
+            "impl Err arm must use unchecked_into.\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("self . __wasm_trait_js_save (data)"),
+            "impl must call extern fn via self.method() syntax.\nImpl: {imp}",
+        );
+    }
+
+    #[test]
+    fn full_void_async_expansion() {
+        let output = expand(
+            quote!(js_type = JsSender),
+            quote! {
+                pub trait Sender {
+                    async fn send(&self, data: u32) -> Result<(), JsValue>;
+                }
+            },
+        );
+
+        // -- TS section --
+        let ts = between(&output, "__WASM_TRAIT_TS_SENDER", "extern \"C\"");
+        assert!(
+            ts.contains("Promise<void>"),
+            "async Result<()> must map to Promise<void> in TS.\nTS: {ts}",
+        );
+
+        // -- Impl block: Ok arm must be Ok(()), NOT unchecked_into --
+        let imp = from(&output, "impl Sender for JsSender");
+        let ok_arm = between(
+            imp,
+            ":: core :: result :: Result :: Ok",
+            ":: core :: result :: Result :: Err",
+        );
+        assert!(
+            ok_arm.contains("Ok (())"),
+            "void Ok arm must discard the value with Ok(()).\nOk arm: {ok_arm}",
+        );
+        assert!(
+            !ok_arm.contains("unchecked_into"),
+            "void Ok arm must NOT use unchecked_into.\nOk arm: {ok_arm}",
+        );
+
+        // Err arm should still use unchecked_into
+        let err_arm = from(imp, ":: core :: result :: Result :: Err");
+        assert!(
+            err_arm.contains("unchecked_into (__e)"),
+            "Err arm must still use unchecked_into.\nErr arm: {err_arm}",
+        );
+    }
+
+    #[test]
+    fn full_static_expansion() {
+        let output = expand(
+            quote!(js_type = JsFactory),
+            quote! {
+                pub trait Factory {
+                    fn create(name: String) -> u32;
+                }
+            },
+        );
+
+        // -- Extern block --
+        let ext = between(&output, "extern \"C\"", "pub trait Factory");
+
+        // The extern fn for a static method must NOT have `method` attr
+        // Note: the macro currently emits `#[wasm_bindgen()]` with empty parens
+        // for static methods — no `method` keyword should be present.
+        let fn_section = between(&ext, "fn __wasm_trait_create", ";");
+        assert!(
+            !fn_section.contains("method"),
+            "static extern fn must not have `method` attr.\nFn: {fn_section}",
+        );
+        assert!(
+            !ext.contains("this"),
+            "static extern fn must not have `this` parameter.\nExtern: {ext}",
+        );
+
+        // -- Trait definition --
+        let tr = between(&output, "pub trait Factory", "impl Factory for JsFactory");
+        assert!(
+            !tr.contains("& self"),
+            "static trait method must not have &self.\nTrait: {tr}",
+        );
+
+        // -- Impl block --
+        let imp = from(&output, "impl Factory for JsFactory");
+        assert!(
+            !imp.contains("self .") && !imp.contains("self."),
+            "static impl must not call via self.\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("__wasm_trait_create (name)"),
+            "static impl must call free fn directly.\nImpl: {imp}",
+        );
+    }
+
+    #[test]
+    fn full_mixed_expansion() {
+        let output = expand(
+            quote!(js_type = JsService),
+            quote! {
+                pub trait Service {
+                    fn name(&self) -> String;
+                    async fn fetch(&self, key: u32) -> Result<Uint8Array, JsValue>;
+                    fn create(label: String) -> bool;
+                }
+            },
+        );
+
+        // -- TS section: all three methods present --
+        let ts = between(&output, "__WASM_TRAIT_TS_SERVICE", "extern \"C\"");
+        assert!(
+            ts.contains("name(): string;"),
+            "TS must have sync name() method.\nTS: {ts}",
+        );
+        assert!(
+            ts.contains("fetch(key: number): Promise<Uint8Array>;"),
+            "TS must have async fetch() method.\nTS: {ts}",
+        );
+        assert!(
+            ts.contains("create(label: string): boolean;"),
+            "TS must have static create() method.\nTS: {ts}",
+        );
+
+        // -- Extern block structure --
+        let ext = between(&output, "extern \"C\"", "pub trait Service");
+
+        // `name` is instance → method attr + this
+        assert!(
+            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_name (this : & JsService)"),
+            "name extern must be method with this.\nExtern: {ext}",
+        );
+
+        // `fetch` is instance + async → method attr + this + returns Promise
+        assert!(
+            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_fetch (this : & JsService"),
+            "fetch extern must be method with this.\nExtern: {ext}",
+        );
+        assert!(
+            ext.contains(
+                "__wasm_trait_fetch (this : & JsService , key : u32) -> :: js_sys :: Promise"
+            ),
+            "fetch extern must return Promise.\nExtern: {ext}",
+        );
+
+        // `create` is static → no method, no this
+        let create_fn_section = between(&ext, "fn __wasm_trait_create", ";");
+        assert!(
+            !create_fn_section.contains("method"),
+            "create (static) extern must not have method attr.\nFn: {create_fn_section}",
+        );
+        assert!(
+            !create_fn_section.contains("this"),
+            "create (static) extern must not have this.\nFn: {create_fn_section}",
+        );
+
+        // -- Trait definition --
+        let tr = between(&output, "pub trait Service", "impl Service for JsService");
+        // sync instance: plain signature
+        assert!(
+            tr.contains("fn name (& self) -> String"),
+            "trait must have name with &self.\nTrait: {tr}",
+        );
+        // async instance: async fn (not RPITIT)
+        assert!(
+            tr.contains("async fn fetch (& self , key : u32) -> Result < Uint8Array , JsValue >"),
+            "trait must have fetch as async fn.\nTrait: {tr}",
+        );
+        // static: no &self
+        assert!(
+            tr.contains("fn create (label : String) -> bool"),
+            "trait must have static create.\nTrait: {tr}",
+        );
+
+        // -- Impl block --
+        let imp = from(&output, "impl Service for JsService");
+        // sync instance delegates via self.
+        assert!(
+            imp.contains("self . __wasm_trait_name ()"),
+            "sync instance impl must use self.method().\nImpl: {imp}",
+        );
+        // async instance uses JsFuture + unchecked_into
+        assert!(
+            imp.contains("self . __wasm_trait_fetch (key)"),
+            "async instance impl must use self.method().\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("JsFuture :: from (__promise)"),
+            "async impl must use JsFuture.\nImpl: {imp}",
+        );
+        assert!(
+            imp.contains("unchecked_into (__v)"),
+            "async impl Ok arm must unchecked_into for Uint8Array.\nImpl: {imp}",
+        );
+        // static delegates via free fn
+        assert!(
+            imp.contains("{ __wasm_trait_create (label) }"),
+            "static impl must call free fn.\nImpl: {imp}",
         );
     }
 }

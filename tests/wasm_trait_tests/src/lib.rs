@@ -7,5 +7,7 @@
 mod async_trait;
 mod implements;
 mod js_name_override;
+mod qa_edge_cases;
+mod realistic_app;
 mod static_methods;
 mod sync_trait;
