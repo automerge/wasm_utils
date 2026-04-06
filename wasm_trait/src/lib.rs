@@ -142,7 +142,7 @@
 //! Trait methods marked `async` must return `Result<T, E>`, because JS
 //! promises can reject. The generated extern fn returns `js_sys::Promise`,
 //! and the generated impl wraps it with `JsFuture`, converting both the
-//! Ok and Err values via [`JsCast::unchecked_into()`].
+//! Ok and Err values via `JsCast::unchecked_into()`.
 //!
 //! For `Result<(), E>`, the Ok value is discarded (JS `Promise<void>`
 //! resolves with `undefined`).
@@ -171,7 +171,7 @@
 //! # Error Types
 //!
 //! Both `T` and `E` in `Result<T, E>` can be any type that implements
-//! [`JsCast`] — not just `JsValue`. The generated impl uses
+//! `JsCast` — not just `JsValue`. The generated impl uses
 //! `unchecked_into()` to convert the raw `JsValue` from `JsFuture` into
 //! the declared types. Choose the type based on what the JS side actually
 //! produces:

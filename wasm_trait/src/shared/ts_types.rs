@@ -7,7 +7,7 @@ use syn::Type;
 
 /// Map a Rust type to its TypeScript representation.
 ///
-/// Returns `None` for types that can't be automatically mapped.
+/// Falls back to `"any"` for types that can't be automatically mapped.
 pub(crate) fn rust_type_to_ts(ty: &Type) -> String {
     match ty {
         Type::Tuple(tuple) if tuple.elems.is_empty() => "void".into(),

@@ -21,7 +21,7 @@ use syn::{
 };
 
 use crate::shared::{
-    attrs::strip_wasm_bindgen,
+    attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
     method::{arg_names, has_self_receiver, to_rpitit_signature},
     naming::{extern_fn_ident, js_interface_const_ident},
     ts_types::{async_return_to_ts, sync_return_to_ts},
@@ -119,27 +119,7 @@ struct MethodInfo<'a> {
 
 /// Extract the `js_name` value from `wasm_bindgen` attrs on a trait method.
 fn extract_js_name(method: &TraitItemFn) -> Option<String> {
-    for attr in &method.attrs {
-        if !attr.path().is_ident("wasm_bindgen") {
-            continue;
-        }
-        if let Ok(nested) =
-            attr.parse_args_with(Punctuated::<syn::Meta, Token![,]>::parse_terminated)
-        {
-            for meta in &nested {
-                if let syn::Meta::NameValue(nv) = meta {
-                    if nv.path.is_ident("js_name") {
-                        if let syn::Expr::Lit(lit) = &nv.value {
-                            if let syn::Lit::Str(s) = &lit.lit {
-                                return Some(s.value());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
+    extract_js_name_from_attrs(&method.attrs)
 }
 
 /// Collect `wasm_bindgen` meta items from a method's attrs.
@@ -329,10 +309,12 @@ fn gen_ts_section(
             let params_str = ts_params.join(", ");
 
             let ts_return = if mi.is_async {
-                async_return_to_ts(match &mi.method.sig.output {
-                    ReturnType::Type(_, ty) => ty,
-                    ReturnType::Default => unreachable!("validated above"),
-                })
+                match &mi.method.sig.output {
+                    ReturnType::Type(_, ty) => async_return_to_ts(ty),
+                    // Validation rejects async methods without a return type,
+                    // but fall back to Promise<void> for robustness.
+                    ReturnType::Default => "Promise<void>".into(),
+                }
             } else {
                 sync_return_to_ts(&mi.method.sig.output)
             };
@@ -345,7 +327,10 @@ fn gen_ts_section(
     let ts_section_str = format!("export interface {ts_interface_name} {{\n{ts_body}\n}}");
 
     let ts_const_name = Ident::new(
-        &format!("__WASM_TRAIT_TS_{}", trait_name.to_string().to_uppercase()),
+        &format!(
+            "__WASM_TRAIT_TS_{}",
+            heck::ToShoutySnakeCase::to_shouty_snake_case(trait_name.to_string().as_str())
+        ),
         trait_name.span(),
     );
 
@@ -991,6 +976,24 @@ mod tests {
         assert!(
             output.contains("compile_error"),
             "&mut self must produce a compile error.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_owned_self() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    fn js_put(self, value: u32);
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("compile_error"),
+            "owned self must produce a compile error.\nOutput: {output}",
         );
         Ok(())
     }
