@@ -14,7 +14,7 @@
 )]
 
 use wasm_bindgen::prelude::*;
-use wasm_trait::{js_trait, wasm_implements};
+use wasm_bindgen_trait::{js_trait, wasm_implements};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. Empty trait — zero methods
@@ -477,7 +477,7 @@ fn mixed_js_interface_const_correct() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 pub mod inner_module {
-    use wasm_trait::js_trait;
+    use wasm_bindgen_trait::js_trait;
 
     #[js_trait(js_type = JsInnerTrait)]
     pub trait InnerTrait {

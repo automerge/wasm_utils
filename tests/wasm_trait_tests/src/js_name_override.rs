@@ -1,6 +1,6 @@
 //! Test: `js_name` parameter overrides the TS interface name.
 
-use wasm_trait::js_trait;
+use wasm_bindgen_trait::js_trait;
 
 #[js_trait(js_type = JsLogger, js_name = ConsoleLogger)]
 pub trait Logger {

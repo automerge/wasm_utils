@@ -20,7 +20,7 @@
 )]
 
 use wasm_bindgen::prelude::*;
-use wasm_trait::{js_trait, wasm_implements};
+use wasm_bindgen_trait::{js_trait, wasm_implements};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. Document Storage — async interface (the main "repository" abstraction)

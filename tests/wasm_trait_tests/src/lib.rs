@@ -1,4 +1,4 @@
-// Integration tests for wasm_trait macros.
+// Integration tests for wasm_bindgen_trait macros.
 //
 // These verify that the generated code compiles against real wasm-bindgen
 // types. The tests are compile-time assertions — if this crate compiles,

@@ -1,4 +1,4 @@
-# wasm_trait
+# wasm_bindgen_trait
 
 JS duck-typed interfaces as Rust traits with compile-time conformance checking.
 
@@ -10,7 +10,7 @@ Define a JS interface as a Rust trait. Generates an `extern "C"` block, a
 TypeScript interface, and an `impl Trait for ExternType`.
 
 ```rust
-use wasm_trait::js_trait;
+use wasm_bindgen_trait::js_trait;
 
 #[js_trait(js_type = JsTransport)]
 pub trait Transport {
@@ -30,7 +30,7 @@ pub trait Transport {
 Compile-time check that a `#[wasm_bindgen]` impl block conforms to a trait.
 
 ```rust
-use wasm_trait::wasm_implements;
+use wasm_bindgen_trait::wasm_implements;
 
 #[wasm_implements(Transport)]
 #[wasm_bindgen(js_class = "SubductionHttpLongPoll")]

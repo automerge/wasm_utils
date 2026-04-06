@@ -8,4 +8,4 @@ publish = false
 js-sys.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
-wasm_trait = { path = "../../wasm_trait" }
+wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }

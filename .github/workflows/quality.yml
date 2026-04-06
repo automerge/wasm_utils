@@ -48,4 +48,4 @@ jobs:
       run: cargo doc --workspace --no-deps
 
     - name: Check no_std compatibility
-      run: cargo check -p wasm_trait --no-default-features
+      run: cargo check -p wasm_bindgen_trait --no-default-features

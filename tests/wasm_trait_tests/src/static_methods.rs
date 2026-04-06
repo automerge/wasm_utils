@@ -1,7 +1,7 @@
 //! Test: static methods (no `&self` receiver) work in both macros.
 
 use wasm_bindgen::prelude::*;
-use wasm_trait::{js_trait, wasm_implements};
+use wasm_bindgen_trait::{js_trait, wasm_implements};
 
 #[js_trait(js_type = JsFactory)]
 pub trait Factory {

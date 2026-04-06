@@ -1,5 +1,5 @@
 [package]
-name = "wasm_trait"
+name = "wasm_bindgen_trait"
 version = "0.1.0"
 description = "JS duck-typed interfaces as Rust traits with compile-time conformance checking"
 readme = "./README.md"

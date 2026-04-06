@@ -1,7 +1,7 @@
 //! Test: `#[wasm_implements]` generates valid compile-time witness.
 
 use wasm_bindgen::prelude::*;
-use wasm_trait::{js_trait, wasm_implements};
+use wasm_bindgen_trait::{js_trait, wasm_implements};
 
 // Define the interface
 #[js_trait(js_type = JsKvStore)]

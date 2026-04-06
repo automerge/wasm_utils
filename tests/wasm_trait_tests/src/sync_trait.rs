@@ -1,6 +1,6 @@
 //! Test: `#[js_trait]` with sync methods generates valid code.
 
-use wasm_trait::js_trait;
+use wasm_bindgen_trait::js_trait;
 
 #[js_trait(js_type = JsCounter)]
 pub trait Counter {

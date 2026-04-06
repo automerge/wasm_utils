@@ -145,6 +145,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm_bindgen_trait"
+version = "0.1.0"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "wasm_refgen"
 version = "0.2.0"
 dependencies = [
@@ -157,23 +167,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm_trait"
-version = "0.1.0"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "wasm_trait_tests"
 version = "0.0.0"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm_trait",
+ "wasm_bindgen_trait",
 ]
 
 [[package]]

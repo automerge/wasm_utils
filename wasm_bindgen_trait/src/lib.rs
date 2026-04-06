@@ -13,7 +13,7 @@
 //! ## 1. Define a JS interface
 //!
 //! ```ignore
-//! use wasm_trait::js_trait;
+//! use wasm_bindgen_trait::js_trait;
 //!
 //! #[js_trait(js_type = JsStorage)]
 //! pub trait Storage {
@@ -53,7 +53,7 @@
 //! ## 3. Export a Rust struct that implements the same interface
 //!
 //! ```ignore
-//! use wasm_trait::wasm_implements;
+//! use wasm_bindgen_trait::wasm_implements;
 //!
 //! #[wasm_bindgen]
 //! pub struct WasmMemoryStorage { /* ... */ }

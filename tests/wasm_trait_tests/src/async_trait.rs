@@ -1,7 +1,7 @@
 //! Test: `#[js_trait]` with async methods generates valid code.
 
 use wasm_bindgen::prelude::*;
-use wasm_trait::js_trait;
+use wasm_bindgen_trait::js_trait;
 
 #[js_trait(js_type = JsStorage)]
 pub trait Storage {
