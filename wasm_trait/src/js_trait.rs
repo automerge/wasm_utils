@@ -607,7 +607,6 @@ fn is_unit_type(ty: &TokenStream) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::needless_borrow)] // test helpers take &str slices from owned strings
 mod tests {
     use super::*;
     use alloc::{boxed::Box, string::ToString};
@@ -760,7 +759,7 @@ mod tests {
 
         // The trait shouldn't have wasm_bindgen attrs on methods
         // Find the trait section
-        let trait_start = output.find("pub trait Foo").expect("must have trait");
+        let trait_start = output.find("pub trait Foo").ok_or("must have trait")?;
         // Find next `impl` or `const` after the trait (end of trait block)
         let trait_end = output[trait_start..]
             .find("impl Foo for JsFoo")
@@ -822,7 +821,9 @@ mod tests {
         )?;
 
         // Extern block should have Promise return
-        let extern_start = output.find("extern \"C\"").expect("must have extern block");
+        let extern_start = output
+            .find("extern \"C\"")
+            .ok_or("must have extern block")?;
         let extern_end = output[extern_start..]
             .find("pub trait")
             .map_or(output.len(), |i| i + extern_start);
@@ -846,7 +847,7 @@ mod tests {
             },
         )?;
 
-        let trait_start = output.find("pub trait Foo").expect("must have trait");
+        let trait_start = output.find("pub trait Foo").ok_or("must have trait")?;
         let trait_end = output[trait_start..]
             .find("impl Foo for JsFoo")
             .map_or(output.len(), |i| i + trait_start);
@@ -874,7 +875,7 @@ mod tests {
             },
         )?;
 
-        let impl_start = output.find("impl Foo for JsFoo").expect("must have impl");
+        let impl_start = output.find("impl Foo for JsFoo").ok_or("must have impl")?;
         let impl_section = &output[impl_start..];
 
         assert!(
@@ -899,7 +900,7 @@ mod tests {
             },
         )?;
 
-        let impl_start = output.find("impl Foo for JsFoo").expect("must have impl");
+        let impl_start = output.find("impl Foo for JsFoo").ok_or("must have impl")?;
         let impl_section = &output[impl_start..];
 
         // For Result<(), JsValue>, the Ok arm should be Ok(()) not Ok(unchecked_into)
@@ -921,7 +922,9 @@ mod tests {
             },
         )?;
 
-        let extern_start = output.find("extern \"C\"").expect("must have extern block");
+        let extern_start = output
+            .find("extern \"C\"")
+            .ok_or("must have extern block")?;
         let extern_end = output[extern_start..]
             .find("pub trait")
             .map_or(output.len(), |i| i + extern_start);
@@ -1042,7 +1045,9 @@ mod tests {
             },
         )?;
 
-        let extern_start = output.find("extern \"C\"").expect("must have extern block");
+        let extern_start = output
+            .find("extern \"C\"")
+            .ok_or("must have extern block")?;
         let extern_end = output[extern_start..]
             .find("pub trait")
             .map_or(output.len(), |i| i + extern_start);
@@ -1292,7 +1297,7 @@ mod tests {
         // The extern fn for a static method must NOT have `method` attr
         // Note: the macro currently emits `#[wasm_bindgen()]` with empty parens
         // for static methods — no `method` keyword should be present.
-        let fn_section = between(&ext, "fn __wasm_trait_create", ";");
+        let fn_section = between(ext, "fn __wasm_trait_create", ";");
         assert!(
             !fn_section.contains("method"),
             "static extern fn must not have `method` attr.\nFn: {fn_section}",
@@ -1372,7 +1377,7 @@ mod tests {
         );
 
         // `create` is static → no method, no this
-        let create_fn_section = between(&ext, "fn __wasm_trait_create", ";");
+        let create_fn_section = between(ext, "fn __wasm_trait_create", ";");
         assert!(
             !create_fn_section.contains("method"),
             "create (static) extern must not have method attr.\nFn: {create_fn_section}",
