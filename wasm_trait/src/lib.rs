@@ -99,11 +99,10 @@
 //! impl DocumentStore for JsStorage {
 //!     async fn save(&self, id: &str, content: &[u8]) -> Result<(), MyError> {
 //!         // Convert Rust types → JS types
-//!         let js_key = JsValue::from_str(id);
 //!         let js_value = Uint8Array::from(content).into();
 //!
 //!         // Call the js_trait-generated method
-//!         self.js_save(js_key.as_string().unwrap(), js_value)
+//!         self.js_save(id.into(), js_value)
 //!             .await
 //!             .map_err(MyError::from_js)
 //!     }
@@ -184,7 +183,7 @@
 //!     #[wasm_bindgen(js_name = "fetchRaw")]
 //!     async fn js_fetch_raw(&self) -> Result<JsValue, JsValue>;
 //!
-//!     // Error type is js_sys::JsError (JS always throws Error objects):
+//!     // Error type is js_sys::Error (JS always throws Error objects):
 //!     #[wasm_bindgen(js_name = "fetchTyped")]
 //!     async fn js_fetch_typed(&self) -> Result<Uint8Array, js_sys::Error>;
 //!
@@ -198,6 +197,25 @@
 //! > `E` does not appear in the generated TypeScript interface.
 //! > `Result<Uint8Array, js_sys::Error>` in async maps to
 //! > `Promise<Uint8Array>` in TS — the rejection type is implicit.
+//!
+//! # JS Method Name Checking
+//!
+//! `#[js_trait]` generates a hidden constant listing the expected JS method
+//! names (from `#[wasm_bindgen(js_name = "...")]` attributes). When you use
+//! `#[wasm_implements]`, it checks at compile time that the impl block
+//! exports all the required JS method names.
+//!
+//! If a method is missing or has the wrong `js_name`, you get a compile error:
+//!
+//! ```text
+//! error: impl block is missing one or more JS methods required by the interface
+//!        (check js_name attrs)
+//! ```
+//!
+//! > **Note:** Methods without `#[wasm_bindgen(js_name = "...")]` get a
+//! > mangled name (e.g., `__wasm_trait_js_send_bytes`) which will almost
+//! > certainly not match the expected interface — catching the missing
+//! > annotation at compile time.
 //!
 //! # Macro Parameters
 //!

@@ -607,19 +607,26 @@ fn is_unit_type(ty: &TokenStream) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::needless_borrow)] // test helpers take &str slices from owned strings
 mod tests {
     use super::*;
-    use alloc::string::ToString;
+    use alloc::{boxed::Box, string::ToString};
+    use core::error::Error;
     use quote::quote;
 
-    fn expand(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStream) -> String {
-        let args: JsTraitArgs = syn::parse2(attr).expect("failed to parse js_trait args");
-        let trait_def: ItemTrait = syn::parse2(item).expect("failed to parse trait");
-        js_trait_impl(args, &trait_def).to_string()
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    fn expand(
+        attr: proc_macro2::TokenStream,
+        item: proc_macro2::TokenStream,
+    ) -> Result<String, syn::Error> {
+        let args: JsTraitArgs = syn::parse2(attr)?;
+        let trait_def: ItemTrait = syn::parse2(item)?;
+        Ok(js_trait_impl(args, &trait_def).to_string())
     }
 
     #[test]
-    fn generates_extern_type() {
+    fn generates_extern_type() -> TestResult {
         let output = expand(
             quote!(js_type = JsTransport),
             quote! {
@@ -627,7 +634,7 @@ mod tests {
                     fn js_name(&self) -> String;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("type JsTransport"),
@@ -637,10 +644,11 @@ mod tests {
             output.contains("typescript_type = \"Transport\""),
             "must set typescript_type to trait name.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn generates_js_interface_const() {
+    fn generates_js_interface_const() -> TestResult {
         let output = expand(
             quote!(js_type = JsTransport),
             quote! {
@@ -652,7 +660,7 @@ mod tests {
                     fn js_recv_bytes(&self) -> u32;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("__JS_INTERFACE_TRANSPORT"),
@@ -666,10 +674,11 @@ mod tests {
             output.contains(r#""recvBytes""#),
             "const must contain recvBytes.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn js_interface_const_uses_mangled_name_without_js_name() {
+    fn js_interface_const_uses_mangled_name_without_js_name() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -677,16 +686,17 @@ mod tests {
                     fn js_bare_method(&self);
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("__wasm_trait_js_bare_method"),
             "const must use the mangled extern fn name when no js_name attr.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn generates_typescript_interface() {
+    fn generates_typescript_interface() -> TestResult {
         let output = expand(
             quote!(js_type = JsTransport),
             quote! {
@@ -695,7 +705,7 @@ mod tests {
                     fn js_name(&self) -> String;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("export interface Transport"),
@@ -705,10 +715,11 @@ mod tests {
             output.contains("getName"),
             "must use js_name in TS interface.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn js_name_override() {
+    fn js_name_override() -> TestResult {
         let output = expand(
             quote!(js_type = JsTransport, js_name = MyTransport),
             quote! {
@@ -716,7 +727,7 @@ mod tests {
                     fn js_name(&self) -> String;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("export interface MyTransport"),
@@ -726,10 +737,11 @@ mod tests {
             output.contains("typescript_type = \"MyTransport\""),
             "must use js_name override for typescript_type.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn generates_trait_without_wasm_bindgen_attrs() {
+    fn generates_trait_without_wasm_bindgen_attrs() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -738,7 +750,7 @@ mod tests {
                     fn js_put(&self, value: u32) -> u32;
                 }
             },
-        );
+        )?;
 
         // Find the trait definition (not in extern block, not in impl block)
         assert!(
@@ -752,18 +764,18 @@ mod tests {
         // Find next `impl` or `const` after the trait (end of trait block)
         let trait_end = output[trait_start..]
             .find("impl Foo for JsFoo")
-            .map(|i| i + trait_start)
-            .unwrap_or(output.len());
+            .map_or(output.len(), |i| i + trait_start);
         let trait_section = &output[trait_start..trait_end];
 
         assert!(
             !trait_section.contains("wasm_bindgen"),
             "trait must not contain wasm_bindgen attrs.\nTrait section: {trait_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn generates_impl_for_extern_type() {
+    fn generates_impl_for_extern_type() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -771,16 +783,17 @@ mod tests {
                     fn js_put(&self, value: u32) -> u32;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("impl Foo for JsFoo"),
             "must generate impl Trait for ExternType.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn extern_fns_prefixed() {
+    fn extern_fns_prefixed() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -788,16 +801,17 @@ mod tests {
                     fn js_put(&self, value: u32) -> u32;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("__wasm_trait_js_put"),
             "extern fns must be prefixed with __wasm_trait_.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn async_method_returns_promise_in_extern() {
+    fn async_method_returns_promise_in_extern() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -805,24 +819,24 @@ mod tests {
                     async fn js_save(&self, value: u32) -> Result<(), JsValue>;
                 }
             },
-        );
+        )?;
 
         // Extern block should have Promise return
         let extern_start = output.find("extern \"C\"").expect("must have extern block");
         let extern_end = output[extern_start..]
             .find("pub trait")
-            .map(|i| i + extern_start)
-            .unwrap_or(output.len());
+            .map_or(output.len(), |i| i + extern_start);
         let extern_section = &output[extern_start..extern_end];
 
         assert!(
             extern_section.contains("Promise"),
             "async extern fns must return Promise.\nExtern: {extern_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn async_method_stays_async_in_trait() {
+    fn async_method_stays_async_in_trait() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -830,13 +844,12 @@ mod tests {
                     async fn js_save(&self, value: u32) -> Result<(), JsValue>;
                 }
             },
-        );
+        )?;
 
         let trait_start = output.find("pub trait Foo").expect("must have trait");
         let trait_end = output[trait_start..]
             .find("impl Foo for JsFoo")
-            .map(|i| i + trait_start)
-            .unwrap_or(output.len());
+            .map_or(output.len(), |i| i + trait_start);
         let trait_section = &output[trait_start..trait_end];
 
         assert!(
@@ -847,10 +860,11 @@ mod tests {
             !trait_section.contains("Future"),
             "trait must use async fn, not RPITIT.\nTrait: {trait_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn async_impl_wraps_with_jsfuture() {
+    fn async_impl_wraps_with_jsfuture() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -858,7 +872,7 @@ mod tests {
                     async fn js_save(&self, value: u32) -> Result<(), JsValue>;
                 }
             },
-        );
+        )?;
 
         let impl_start = output.find("impl Foo for JsFoo").expect("must have impl");
         let impl_section = &output[impl_start..];
@@ -871,10 +885,11 @@ mod tests {
             impl_section.contains("unchecked_into"),
             "async impl must use unchecked_into for Err arm.\nImpl: {impl_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn unit_ok_type_discards_value() {
+    fn unit_ok_type_discards_value() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -882,7 +897,7 @@ mod tests {
                     async fn js_save(&self) -> Result<(), JsValue>;
                 }
             },
-        );
+        )?;
 
         let impl_start = output.find("impl Foo for JsFoo").expect("must have impl");
         let impl_section = &output[impl_start..];
@@ -892,10 +907,11 @@ mod tests {
             impl_section.contains("Ok (())") || impl_section.contains("Ok(())"),
             "() Ok type must discard value with Ok(()).\nImpl: {impl_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn static_method_no_this() {
+    fn static_method_no_this() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -903,13 +919,12 @@ mod tests {
                     fn js_create(name: String) -> u32;
                 }
             },
-        );
+        )?;
 
         let extern_start = output.find("extern \"C\"").expect("must have extern block");
         let extern_end = output[extern_start..]
             .find("pub trait")
-            .map(|i| i + extern_start)
-            .unwrap_or(output.len());
+            .map_or(output.len(), |i| i + extern_start);
         let extern_section = &output[extern_start..extern_end];
 
         assert!(
@@ -920,10 +935,11 @@ mod tests {
             !extern_section.contains("method"),
             "static methods must not have `method` attr.\nExtern: {extern_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn error_on_generic_trait() {
+    fn error_on_generic_trait() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -931,16 +947,17 @@ mod tests {
                     fn js_put(&self, value: T);
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("compile_error"),
             "generic traits must produce a compile error.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn error_on_async_without_result() {
+    fn error_on_async_without_result() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -948,16 +965,17 @@ mod tests {
                     async fn js_save(&self, value: u32) -> u32;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("compile_error"),
             "async without Result must produce a compile error.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn error_on_mut_self() {
+    fn error_on_mut_self() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -965,16 +983,17 @@ mod tests {
                     fn js_put(&mut self, value: u32);
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("compile_error"),
             "&mut self must produce a compile error.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn ts_maps_precise_types() {
+    fn ts_maps_precise_types() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -983,16 +1002,17 @@ mod tests {
                     async fn js_save(&self, bytes: Uint8Array) -> Result<Uint8Array, JsValue>;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("Promise<Uint8Array>"),
             "async Result<Uint8Array, _> must map to Promise<Uint8Array> in TS.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn ts_void_for_unit() {
+    fn ts_void_for_unit() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -1001,16 +1021,17 @@ mod tests {
                     async fn js_send(&self, data: u32) -> Result<(), JsValue>;
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("Promise<void>"),
             "async Result<(), _> must map to Promise<void> in TS.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn catch_forwarded_to_extern() {
+    fn catch_forwarded_to_extern() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -1019,31 +1040,33 @@ mod tests {
                     fn js_try_load(&self, key: u32) -> Result<JsValue, JsValue>;
                 }
             },
-        );
+        )?;
 
         let extern_start = output.find("extern \"C\"").expect("must have extern block");
         let extern_end = output[extern_start..]
             .find("pub trait")
-            .map(|i| i + extern_start)
-            .unwrap_or(output.len());
+            .map_or(output.len(), |i| i + extern_start);
         let extern_section = &output[extern_start..extern_end];
 
         assert!(
             extern_section.contains("catch"),
             "catch must be forwarded to extern fn.\nExtern: {extern_section}",
         );
+        Ok(())
     }
 
     /// Extract the substring from `start` to `end` (exclusive).
+    #[allow(clippy::panic)]
     fn between<'a>(output: &'a str, start: &str, end: &str) -> &'a str {
         let s = output
             .find(start)
             .unwrap_or_else(|| panic!("start marker not found: {start}"));
-        let e = output[s..].find(end).map(|i| i + s).unwrap_or(output.len());
+        let e = output[s..].find(end).map_or(output.len(), |i| i + s);
         &output[s..e]
     }
 
     /// Extract from `start` to the end of the string.
+    #[allow(clippy::panic)]
     fn from<'a>(output: &'a str, start: &str) -> &'a str {
         let s = output
             .find(start)
@@ -1056,7 +1079,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn full_sync_expansion() {
+    fn full_sync_expansion() -> TestResult {
         let output = expand(
             quote!(js_type = JsCounter),
             quote! {
@@ -1065,7 +1088,7 @@ mod tests {
                     fn set_count(&self, value: u32);
                 }
             },
-        );
+        )?;
 
         // -- TS section --
         let ts = between(&output, "__WASM_TRAIT_TS_COUNTER", "extern \"C\"");
@@ -1132,10 +1155,11 @@ mod tests {
             imp.contains("self . __wasm_trait_set_count (value)"),
             "impl must delegate set_count via self.method() syntax.\nImpl: {imp}",
         );
+        Ok(())
     }
 
     #[test]
-    fn full_async_expansion() {
+    fn full_async_expansion() -> TestResult {
         let output = expand(
             quote!(js_type = JsStore),
             quote! {
@@ -1144,7 +1168,7 @@ mod tests {
                     async fn js_save(&self, data: Uint8Array) -> Result<Uint8Array, JsValue>;
                 }
             },
-        );
+        )?;
 
         // -- TS section --
         let ts = between(&output, "__WASM_TRAIT_TS_STORE", "extern \"C\"");
@@ -1205,10 +1229,11 @@ mod tests {
             imp.contains("self . __wasm_trait_js_save (data)"),
             "impl must call extern fn via self.method() syntax.\nImpl: {imp}",
         );
+        Ok(())
     }
 
     #[test]
-    fn full_void_async_expansion() {
+    fn full_void_async_expansion() -> TestResult {
         let output = expand(
             quote!(js_type = JsSender),
             quote! {
@@ -1216,7 +1241,7 @@ mod tests {
                     async fn send(&self, data: u32) -> Result<(), JsValue>;
                 }
             },
-        );
+        )?;
 
         // -- TS section --
         let ts = between(&output, "__WASM_TRAIT_TS_SENDER", "extern \"C\"");
@@ -1247,10 +1272,11 @@ mod tests {
             err_arm.contains("unchecked_into (__e)"),
             "Err arm must still use unchecked_into.\nErr arm: {err_arm}",
         );
+        Ok(())
     }
 
     #[test]
-    fn full_static_expansion() {
+    fn full_static_expansion() -> TestResult {
         let output = expand(
             quote!(js_type = JsFactory),
             quote! {
@@ -1258,7 +1284,7 @@ mod tests {
                     fn create(name: String) -> u32;
                 }
             },
-        );
+        )?;
 
         // -- Extern block --
         let ext = between(&output, "extern \"C\"", "pub trait Factory");
@@ -1293,10 +1319,11 @@ mod tests {
             imp.contains("__wasm_trait_create (name)"),
             "static impl must call free fn directly.\nImpl: {imp}",
         );
+        Ok(())
     }
 
     #[test]
-    fn full_mixed_expansion() {
+    fn full_mixed_expansion() -> TestResult {
         let output = expand(
             quote!(js_type = JsService),
             quote! {
@@ -1306,7 +1333,7 @@ mod tests {
                     fn create(label: String) -> bool;
                 }
             },
-        );
+        )?;
 
         // -- TS section: all three methods present --
         let ts = between(&output, "__WASM_TRAIT_TS_SERVICE", "extern \"C\"");
@@ -1398,5 +1425,105 @@ mod tests {
             imp.contains("{ __wasm_trait_create (label) }"),
             "static impl must call free fn.\nImpl: {imp}",
         );
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------
+    // TS type mapping stress tests (QA round 2)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn ts_option_string_maps_to_string_or_null() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsTsOpt),
+            quote! {
+                pub trait TsOpt {
+                    #[wasm_bindgen(js_name = "maybeName")]
+                    fn js_maybe_name(&self) -> Option<String>;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("string | null"),
+            "Option<String> must map to 'string | null' in TS.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ts_async_result_unit_maps_to_promise_void() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsTsVoid),
+            quote! {
+                pub trait TsVoid {
+                    #[wasm_bindgen(js_name = "send")]
+                    async fn js_send(&self) -> Result<(), JsValue>;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("Promise<void>"),
+            "Result<(), JsValue> in async must map to 'Promise<void>'.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ts_async_result_array_maps_to_promise_array() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsTsArr),
+            quote! {
+                pub trait TsArr {
+                    #[wasm_bindgen(js_name = "fetchAll")]
+                    async fn js_fetch_all(&self) -> Result<Array, JsValue>;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("Promise<Array<any>>"),
+            "Result<Array, JsValue> in async must map to 'Promise<Array<any>>'.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ts_bool_return_maps_to_boolean() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsTsBool),
+            quote! {
+                pub trait TsBool {
+                    #[wasm_bindgen(js_name = "isReady")]
+                    fn js_is_ready(&self) -> bool;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("boolean"),
+            "bool return must map to 'boolean' in TS.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ts_no_return_maps_to_void() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsTsNoRet),
+            quote! {
+                pub trait TsNoRet {
+                    #[wasm_bindgen(js_name = "reset")]
+                    fn js_reset(&self);
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("reset(): void;"),
+            "Method with no return type must map to 'void' in TS.\nOutput: {output}",
+        );
+        Ok(())
     }
 }

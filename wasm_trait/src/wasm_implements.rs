@@ -125,7 +125,7 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
         };
     };
 
-    let js_name_check = gen_js_name_check(trait_name, &actual_js_names);
+    let js_name_check = gen_js_name_check(trait_path, trait_name, &actual_js_names);
 
     quote! {
         #impl_block
@@ -136,14 +136,34 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
 
 /// Generate a compile-time assertion that the impl block's JS method names
 /// match those expected by the trait's `__JS_INTERFACE_*` const.
-fn gen_js_name_check(trait_name: &syn::Ident, actual_js_names: &[String]) -> TokenStream {
+fn gen_js_name_check(
+    trait_path: &Path,
+    trait_name: &syn::Ident,
+    actual_js_names: &[String],
+) -> TokenStream {
     let actual_literals: Vec<TokenStream> = actual_js_names.iter().map(|s| quote!(#s)).collect();
-    let expected_const = js_interface_const_ident(trait_name);
+
+    // Build the full path to the __JS_INTERFACE_* const, preserving the
+    // module prefix from the trait path. E.g., for `some_module::Transport`
+    // we generate `some_module::__JS_INTERFACE_TRANSPORT`.
+    let const_ident = js_interface_const_ident(trait_name);
+    let expected_path = if trait_path.segments.len() > 1 {
+        // Has a module prefix — replace the last segment with the const ident
+        let mut path = trait_path.clone();
+        if let Some(last) = path.segments.last_mut() {
+            last.ident = const_ident;
+            last.arguments = syn::PathArguments::None;
+        }
+        quote!(#path)
+    } else {
+        // Simple ident — just use the const ident directly
+        quote!(#const_ident)
+    };
 
     quote! {
         const _: () = {
             const __ACTUAL: &[&str] = &[#(#actual_literals),*];
-            const __EXPECTED: &[&str] = #expected_const;
+            const __EXPECTED: &[&str] = #expected_path;
 
             const fn __wasm_trait_str_eq(a: &str, b: &str) -> bool {
                 let a = a.as_bytes();
@@ -186,19 +206,25 @@ fn gen_js_name_check(trait_name: &syn::Ident, actual_js_names: &[String]) -> Tok
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::string::{String, ToString};
+    use alloc::{
+        boxed::Box,
+        string::{String, ToString},
+    };
     use quote::quote;
 
-    /// Helper: run the macro transform on the given trait path and impl block,
-    /// returning the output as a `String`.
-    fn expand(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStream) -> String {
-        let trait_path: Path = syn::parse2(attr).expect("failed to parse trait path");
-        let impl_block: ItemImpl = syn::parse2(item).expect("failed to parse impl block");
-        wasm_implements_impl(&trait_path, impl_block).to_string()
+    type TestResult = Result<(), Box<dyn core::error::Error>>;
+
+    fn expand(
+        attr: proc_macro2::TokenStream,
+        item: proc_macro2::TokenStream,
+    ) -> Result<String, syn::Error> {
+        let trait_path: Path = syn::parse2(attr)?;
+        let impl_block: ItemImpl = syn::parse2(item)?;
+        Ok(wasm_implements_impl(&trait_path, impl_block).to_string())
     }
 
     #[test]
-    fn generates_tag_method() {
+    fn generates_tag_method() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -206,20 +232,15 @@ mod tests {
                     pub fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
-        assert!(
-            output.contains("__wasm_impl_transport"),
-            "must inject the runtime tag method.\nOutput: {output}",
-        );
-        assert!(
-            output.contains("__wasm_impl_Transport"),
-            "must generate the JS-side tag name.\nOutput: {output}",
-        );
+        assert!(output.contains("__wasm_impl_transport"));
+        assert!(output.contains("__wasm_impl_Transport"));
+        Ok(())
     }
 
     #[test]
-    fn generates_witness_impl() {
+    fn generates_witness_impl() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -227,20 +248,15 @@ mod tests {
                     pub fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
-        assert!(
-            output.contains("impl Transport for WasmFoo"),
-            "must generate a witness trait impl.\nOutput: {output}",
-        );
-        assert!(
-            output.contains("const _ : () ="),
-            "witness must be inside const _: ().\nOutput: {output}",
-        );
+        assert!(output.contains("impl Transport for WasmFoo"));
+        assert!(output.contains("const _ : () ="));
+        Ok(())
     }
 
     #[test]
-    fn witness_delegates_to_inherent_method() {
+    fn witness_delegates_to_inherent_method() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -248,18 +264,18 @@ mod tests {
                     pub fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("WasmFoo :: js_put (self , value)")
                 || output.contains("WasmFoo :: js_put(self, value)")
                 || output.contains("WasmFoo::js_put(self, value)"),
-            "witness must delegate to the inherent method.\nOutput: {output}",
         );
+        Ok(())
     }
 
     #[test]
-    fn strips_wasm_bindgen_attrs_from_witness() {
+    fn strips_wasm_bindgen_attrs_from_witness() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -268,20 +284,18 @@ mod tests {
                     pub fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
-        // The original impl should still have wasm_bindgen
-        let witness_start = output.find("const _ : () =").expect("must have witness");
-        let witness_section = &output[witness_start..];
-
-        assert!(
-            !witness_section.contains("wasm_bindgen"),
-            "witness must NOT contain wasm_bindgen attrs.\nWitness: {witness_section}",
-        );
+        let witness_section = output
+            .split_once("const _ : () =")
+            .ok_or("must have witness")?
+            .1;
+        assert!(!witness_section.contains("wasm_bindgen"));
+        Ok(())
     }
 
     #[test]
-    fn async_method_becomes_rpitit_in_witness() {
+    fn async_method_becomes_rpitit_in_witness() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -289,23 +303,19 @@ mod tests {
                     pub async fn js_send(&self, data: u32) -> u32 { data }
                 }
             },
-        );
+        )?;
 
-        let witness_start = output.find("const _ : () =").expect("must have witness");
-        let witness_section = &output[witness_start..];
-
-        assert!(
-            witness_section.contains("Future"),
-            "async methods in witness must use RPITIT (impl Future).\nWitness: {witness_section}",
-        );
-        assert!(
-            !witness_section.contains("async"),
-            "witness must NOT contain async keyword.\nWitness: {witness_section}",
-        );
+        let witness_section = output
+            .split_once("const _ : () =")
+            .ok_or("must have witness")?
+            .1;
+        assert!(witness_section.contains("Future"));
+        assert!(!witness_section.contains("async"));
+        Ok(())
     }
 
     #[test]
-    fn preserves_original_impl_block() {
+    fn preserves_original_impl_block() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -314,22 +324,18 @@ mod tests {
                     pub fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
-        // The original impl block should appear before the witness
         let impl_pos = output
             .find("impl WasmFoo")
-            .expect("must have original impl");
-        let witness_pos = output.find("const _ : () =").expect("must have witness");
-
-        assert!(
-            impl_pos < witness_pos,
-            "original impl must come before the witness.\nOutput: {output}",
-        );
+            .ok_or("must have original impl")?;
+        let witness_pos = output.find("const _ : () =").ok_or("must have witness")?;
+        assert!(impl_pos < witness_pos);
+        Ok(())
     }
 
     #[test]
-    fn static_method_delegates_without_self() {
+    fn static_method_delegates_without_self() -> TestResult {
         let output = expand(
             quote!(Factory),
             quote! {
@@ -337,21 +343,22 @@ mod tests {
                     pub fn js_create(name: u32) -> u32 { name }
                 }
             },
-        );
+        )?;
 
-        let witness_start = output.find("const _ : () =").expect("must have witness");
-        let witness_section = &output[witness_start..];
-
+        let witness_section = output
+            .split_once("const _ : () =")
+            .ok_or("must have witness")?
+            .1;
         assert!(
             witness_section.contains("WasmFoo :: js_create (name)")
                 || witness_section.contains("WasmFoo :: js_create(name)")
                 || witness_section.contains("WasmFoo::js_create(name)"),
-            "static methods must delegate without self.\nWitness: {witness_section}",
         );
+        Ok(())
     }
 
     #[test]
-    fn supports_module_path_trait() {
+    fn supports_module_path_trait() -> TestResult {
         let output = expand(
             quote!(my_module::Transport),
             quote! {
@@ -359,23 +366,18 @@ mod tests {
                     pub fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
         assert!(
             output.contains("impl my_module :: Transport for WasmFoo")
                 || output.contains("impl my_module::Transport for WasmFoo"),
-            "must support module-qualified trait paths.\nOutput: {output}",
         );
-
-        // Tag should use the last segment
-        assert!(
-            output.contains("__wasm_impl_transport"),
-            "tag must use the last segment of the trait path.\nOutput: {output}",
-        );
+        assert!(output.contains("__wasm_impl_transport"));
+        Ok(())
     }
 
     #[test]
-    fn error_on_trait_impl() {
+    fn error_on_trait_impl() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -383,16 +385,14 @@ mod tests {
                     fn js_put(&self) {}
                 }
             },
-        );
+        )?;
 
-        assert!(
-            output.contains("compile_error"),
-            "trait impl must produce a compile error.\nOutput: {output}",
-        );
+        assert!(output.contains("compile_error"));
+        Ok(())
     }
 
     #[test]
-    fn ignores_private_methods() {
+    fn ignores_private_methods() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -401,23 +401,19 @@ mod tests {
                     fn private_helper(&self) -> u32 { 42 }
                 }
             },
-        );
+        )?;
 
-        let witness_start = output.find("const _ : () =").expect("must have witness");
-        let witness_section = &output[witness_start..];
-
-        assert!(
-            !witness_section.contains("private_helper"),
-            "witness must not include private methods.\nWitness: {witness_section}",
-        );
-        assert!(
-            witness_section.contains("js_put"),
-            "witness must include public methods.\nWitness: {witness_section}",
-        );
+        let witness_section = output
+            .split_once("const _ : () =")
+            .ok_or("must have witness")?
+            .1;
+        assert!(!witness_section.contains("private_helper"));
+        assert!(witness_section.contains("js_put"));
+        Ok(())
     }
 
     #[test]
-    fn generates_js_name_check() {
+    fn generates_js_name_check() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -426,20 +422,15 @@ mod tests {
                     pub fn js_send_bytes(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
-        assert!(
-            output.contains("__JS_INTERFACE_TRANSPORT"),
-            "must reference the JS interface const.\nOutput: {output}",
-        );
-        assert!(
-            output.contains("sendBytes"),
-            "must include the JS method name in the check.\nOutput: {output}",
-        );
+        assert!(output.contains("__JS_INTERFACE_TRANSPORT"));
+        assert!(output.contains("sendBytes"));
+        Ok(())
     }
 
     #[test]
-    fn js_name_check_includes_all_methods() {
+    fn js_name_check_includes_all_methods() -> TestResult {
         let output = expand(
             quote!(Storage),
             quote! {
@@ -454,24 +445,16 @@ mod tests {
                     pub fn js_delete(&self, key: u32) -> bool { true }
                 }
             },
-        );
+        )?;
 
-        assert!(
-            output.contains(r#""save""#),
-            "must include 'save' in actual JS names.\nOutput: {output}",
-        );
-        assert!(
-            output.contains(r#""load""#),
-            "must include 'load' in actual JS names.\nOutput: {output}",
-        );
-        assert!(
-            output.contains(r#""delete""#),
-            "must include 'delete' in actual JS names.\nOutput: {output}",
-        );
+        assert!(output.contains(r#""save""#));
+        assert!(output.contains(r#""load""#));
+        assert!(output.contains(r#""delete""#));
+        Ok(())
     }
 
     #[test]
-    fn js_name_check_uses_rust_name_when_no_js_name() {
+    fn js_name_check_uses_rust_name_when_no_js_name() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -479,17 +462,14 @@ mod tests {
                     pub fn js_send_bytes(&self, value: u32) -> u32 { value }
                 }
             },
-        );
+        )?;
 
-        // Without #[wasm_bindgen(js_name = "...")], the Rust method name is used
-        assert!(
-            output.contains(r#""js_send_bytes""#),
-            "must use Rust method name when no js_name attr.\nOutput: {output}",
-        );
+        assert!(output.contains(r#""js_send_bytes""#));
+        Ok(())
     }
 
     #[test]
-    fn js_name_check_contains_const_assertion() {
+    fn js_name_check_contains_const_assertion() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
@@ -498,15 +478,10 @@ mod tests {
                     pub fn js_send(&self) {}
                 }
             },
-        );
+        )?;
 
-        assert!(
-            output.contains("__wasm_trait_check"),
-            "must generate the const fn check.\nOutput: {output}",
-        );
-        assert!(
-            output.contains("assert !"),
-            "must generate a const assert.\nOutput: {output}",
-        );
+        assert!(output.contains("__wasm_trait_check"));
+        assert!(output.contains("assert !"));
+        Ok(())
     }
 }
