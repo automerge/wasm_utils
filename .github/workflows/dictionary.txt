@@ -6,10 +6,13 @@ composable
 crypto
 dyn
 expede
+extern
 faq
 FIXME
 html
 https
+ident
+impl
 instanceof
 JS
 JS-imported
