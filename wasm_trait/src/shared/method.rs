@@ -3,14 +3,10 @@
 //! Handles stripping `async`, `pub`, and transforming
 //! `async fn foo() -> T` into `fn foo() -> impl Future<Output = T> + '_`.
 
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{boxed::Box, vec::Vec};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{FnArg, ImplItemFn, Pat, ReturnType, Signature};
+use syn::{FnArg, ImplItemFn, ReturnType, Signature};
 
 /// Extract argument names from a method signature, skipping `self`.
 pub fn arg_names(sig: &Signature) -> Vec<TokenStream> {
@@ -23,14 +19,6 @@ pub fn arg_names(sig: &Signature) -> Vec<TokenStream> {
                 Some(quote!(#pat))
             }
         })
-        .collect()
-}
-
-/// Extract argument patterns with types from a method signature, skipping `self`.
-pub fn arg_pats_and_types(sig: &Signature) -> Vec<&FnArg> {
-    sig.inputs
-        .iter()
-        .filter(|arg| !matches!(arg, FnArg::Receiver(_)))
         .collect()
 }
 
@@ -73,12 +61,4 @@ pub fn to_rpitit_signature(sig: &Signature) -> Signature {
 /// Whether a method is `pub`.
 pub fn is_pub(method: &ImplItemFn) -> bool {
     matches!(method.vis, syn::Visibility::Public(_))
-}
-
-/// Extract the method name as a string from a pattern.
-pub fn pat_ident_name(pat: &Pat) -> Option<String> {
-    match pat {
-        Pat::Ident(pat_ident) => Some(pat_ident.ident.to_string()),
-        _ => None,
-    }
 }
