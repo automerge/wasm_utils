@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "from_js_ref",
+    "tests/wasm_trait_tests",
     "wasm_refgen",
     "wasm_trait",
 ]

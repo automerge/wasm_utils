@@ -476,8 +476,10 @@ fn gen_impl_block(
             if mi.is_async {
                 gen_async_impl_method(mi, &extern_name, &rpitit_sig, &arg_names)
             } else {
+                // wasm-bindgen `method` fns become methods on the extern type;
+                // static fns (no `this`) become free functions.
                 let call = if mi.has_self {
-                    quote! { #extern_name(self, #(#arg_names),*) }
+                    quote! { self.#extern_name(#(#arg_names),*) }
                 } else {
                     quote! { #extern_name(#(#arg_names),*) }
                 };
@@ -506,7 +508,7 @@ fn gen_async_impl_method(
     arg_names: &[TokenStream],
 ) -> TokenStream {
     let extern_call = if mi.has_self {
-        quote! { #extern_name(self, #(#arg_names),*) }
+        quote! { self.#extern_name(#(#arg_names),*) }
     } else {
         quote! { #extern_name(#(#arg_names),*) }
     };
