@@ -229,8 +229,12 @@
 //! ## `#[wasm_implements]`
 //!
 //! Takes one argument: the trait path to check conformance against.
-//! Use separate `impl` blocks for multiple traits (one per trait),
-//! mirroring how native Rust trait impls work.
+//!
+//! The annotated `impl` block should contain _only_ the methods required
+//! by the trait — just like a native `impl Trait for Type` block in Rust.
+//! Extra methods (constructors, helpers, etc.) should go in a separate
+//! `impl` block. Similarly, use separate `impl` blocks for multiple
+//! traits (one per trait).
 //!
 //! # User Dependencies
 //!

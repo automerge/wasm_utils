@@ -270,6 +270,17 @@ fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
                 }
             }
         }
+
+        if mi.js_name.is_none() {
+            return Some(
+                syn::Error::new(
+                    mi.method.sig.ident.span(),
+                    "js_trait methods must have #[wasm_bindgen(js_name = \"...\")] \
+                     to specify the JS method name",
+                )
+                .to_compile_error(),
+            );
+        }
     }
 
     None
@@ -615,6 +626,7 @@ mod tests {
             quote!(js_type = JsTransport),
             quote! {
                 pub trait Transport {
+                    #[wasm_bindgen(js_name = "name")]
                     fn js_name(&self) -> String;
                 }
             },
@@ -662,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn js_interface_const_uses_mangled_name_without_js_name() -> TestResult {
+    fn error_on_missing_js_name() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
             quote! {
@@ -673,8 +685,8 @@ mod tests {
         )?;
 
         assert!(
-            output.contains("__wasm_trait_js_bare_method"),
-            "const must use the mangled extern fn name when no js_name attr.\nOutput: {output}",
+            output.contains("compile_error"),
+            "missing js_name must produce a compile error.\nOutput: {output}",
         );
         Ok(())
     }
@@ -708,6 +720,7 @@ mod tests {
             quote!(js_type = JsTransport, js_name = MyTransport),
             quote! {
                 pub trait Transport {
+                    #[wasm_bindgen(js_name = "name")]
                     fn js_name(&self) -> String;
                 }
             },
@@ -764,6 +777,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "put")]
                     fn js_put(&self, value: u32) -> u32;
                 }
             },
@@ -782,6 +796,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "put")]
                     fn js_put(&self, value: u32) -> u32;
                 }
             },
@@ -800,6 +815,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "save")]
                     async fn js_save(&self, value: u32) -> Result<(), JsValue>;
                 }
             },
@@ -827,6 +843,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "save")]
                     async fn js_save(&self, value: u32) -> Result<(), JsValue>;
                 }
             },
@@ -855,6 +872,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "save")]
                     async fn js_save(&self, value: u32) -> Result<(), JsValue>;
                 }
             },
@@ -880,6 +898,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "save")]
                     async fn js_save(&self) -> Result<(), JsValue>;
                 }
             },
@@ -902,6 +921,7 @@ mod tests {
             quote!(js_type = JsFoo),
             quote! {
                 pub trait Foo {
+                    #[wasm_bindgen(js_name = "create")]
                     fn js_create(name: String) -> u32;
                 }
             },
@@ -1092,7 +1112,10 @@ mod tests {
             quote!(js_type = JsCounter),
             quote! {
                 pub trait Counter {
+                    #[wasm_bindgen(js_name = "getCount")]
                     fn get_count(&self) -> u32;
+
+                    #[wasm_bindgen(js_name = "setCount")]
                     fn set_count(&self, value: u32);
                 }
             },
@@ -1105,12 +1128,12 @@ mod tests {
             "TS must declare interface Counter.\nTS: {ts}",
         );
         assert!(
-            ts.contains("get_count(): number;"),
-            "TS must map u32 → number for get_count.\nTS: {ts}",
+            ts.contains("getCount(): number;"),
+            "TS must map u32 → number for getCount.\nTS: {ts}",
         );
         assert!(
-            ts.contains("set_count(value: number): void;"),
-            "TS must map set_count(u32) → void.\nTS: {ts}",
+            ts.contains("setCount(value: number): void;"),
+            "TS must map setCount(u32) → void.\nTS: {ts}",
         );
 
         // -- Extern block --
@@ -1125,11 +1148,11 @@ mod tests {
         );
         // Both methods are instance methods → must have `method` attr
         assert!(
-            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_get_count"),
+            ext.contains("method") && ext.contains("fn __wasm_trait_get_count"),
             "get_count extern must have method attr.\nExtern: {ext}",
         );
         assert!(
-            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_set_count"),
+            ext.contains("method") && ext.contains("fn __wasm_trait_set_count"),
             "set_count extern must have method attr.\nExtern: {ext}",
         );
         // Both must have `this` parameter
@@ -1246,6 +1269,7 @@ mod tests {
             quote!(js_type = JsSender),
             quote! {
                 pub trait Sender {
+                    #[wasm_bindgen(js_name = "send")]
                     async fn send(&self, data: u32) -> Result<(), JsValue>;
                 }
             },
@@ -1289,6 +1313,7 @@ mod tests {
             quote!(js_type = JsFactory),
             quote! {
                 pub trait Factory {
+                    #[wasm_bindgen(js_name = "create")]
                     fn create(name: String) -> u32;
                 }
             },
@@ -1336,8 +1361,13 @@ mod tests {
             quote!(js_type = JsService),
             quote! {
                 pub trait Service {
+                    #[wasm_bindgen(js_name = "name")]
                     fn name(&self) -> String;
+
+                    #[wasm_bindgen(js_name = "fetch")]
                     async fn fetch(&self, key: u32) -> Result<Uint8Array, JsValue>;
+
+                    #[wasm_bindgen(js_name = "create")]
                     fn create(label: String) -> bool;
                 }
             },
@@ -1363,13 +1393,13 @@ mod tests {
 
         // `name` is instance → method attr + this
         assert!(
-            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_name (this : & JsService)"),
+            ext.contains("method") && ext.contains("fn __wasm_trait_name (this : & JsService)"),
             "name extern must be method with this.\nExtern: {ext}",
         );
 
         // `fetch` is instance + async → method attr + this + returns Promise
         assert!(
-            ext.contains("# [wasm_bindgen (method)] fn __wasm_trait_fetch (this : & JsService"),
+            ext.contains("method") && ext.contains("fn __wasm_trait_fetch (this : & JsService"),
             "fetch extern must be method with this.\nExtern: {ext}",
         );
         assert!(

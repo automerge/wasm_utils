@@ -170,16 +170,17 @@ fn doc_comments_survive() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. Method with no #[wasm_bindgen] attr
+// 8. Method with explicit js_name attr
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsNoWbAttr)]
 pub trait NoWbAttr {
+    #[wasm_bindgen(js_name = "bareMethod")]
     fn js_bare_method(&self) -> u32;
 }
 
 #[test]
-fn no_wasm_bindgen_attr_compiles() {
+fn explicit_js_name_attr_compiles() {
     fn assert_trait<T: NoWbAttr>() {}
     assert_trait::<JsNoWbAttr>();
 }
@@ -325,17 +326,18 @@ mod mismatched_js_name {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. JS name check — missing js_name on trait method
+// 15. JS name check — js_name required on trait methods
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsBareMethodQa)]
 pub trait BareMethodQa {
+    #[wasm_bindgen(js_name = "bareFn")]
     fn js_bare_fn(&self) -> u32;
 }
 
 #[test]
-fn missing_js_name_on_trait_uses_mangled_name() {
-    assert_eq!(__JS_INTERFACE_BARE_METHOD_QA, &["__wasm_trait_js_bare_fn"],);
+fn js_name_required_on_trait_method() {
+    assert_eq!(__JS_INTERFACE_BARE_METHOD_QA, &["bareFn"]);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

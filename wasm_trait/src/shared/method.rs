@@ -22,7 +22,7 @@ pub(crate) fn arg_names(sig: &Signature) -> Vec<TokenStream> {
         .collect()
 }
 
-/// Whether the method has a `&self` receiver.
+/// Whether the method has any receiver (`self`, `&self`, `&mut self`).
 pub(crate) fn has_self_receiver(sig: &Signature) -> bool {
     sig.inputs
         .iter()
