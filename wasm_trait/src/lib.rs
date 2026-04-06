@@ -212,10 +212,11 @@
 //!        (check js_name attrs)
 //! ```
 //!
-//! > **Note:** Methods without `#[wasm_bindgen(js_name = "...")]` get a
-//! > mangled name (e.g., `__wasm_trait_js_send_bytes`) which will almost
-//! > certainly not match the expected interface — catching the missing
-//! > annotation at compile time.
+//! > **Note:** `#[js_trait]` requires `#[wasm_bindgen(js_name = "...")]` on
+//! > every method — omitting it is a compile error. On the
+//! > `#[wasm_implements]` side, methods without `js_name` use their Rust
+//! > name, which will not match the expected interface — catching the
+//! > mismatch at compile time.
 //!
 //! # Macro Parameters
 //!

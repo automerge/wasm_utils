@@ -292,7 +292,10 @@ fn js_name_check_happy_path() {
 
 #[test]
 fn js_interface_const_has_expected_names() {
-    assert_eq!(__JS_INTERFACE_TRANSPORT_QA, &["sendBytes", "recvBytes"],);
+    assert_eq!(
+        <JsTransportQa as TransportQa>::__JS_INTERFACE,
+        &["sendBytes", "recvBytes"],
+    );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -337,7 +340,10 @@ pub trait BareMethodQa {
 
 #[test]
 fn js_name_required_on_trait_method() {
-    assert_eq!(__JS_INTERFACE_BARE_METHOD_QA, &["bareFn"]);
+    assert_eq!(
+        <JsBareMethodQa as BareMethodQa>::__JS_INTERFACE,
+        &["bareFn"],
+    );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -460,7 +466,10 @@ fn mixed_trait_end_to_end() {
 
 #[test]
 fn mixed_js_interface_const_correct() {
-    assert_eq!(__JS_INTERFACE_MIXED_QA, &["name", "fetchItem", "create"],);
+    assert_eq!(
+        <JsMixedQa as MixedQa>::__JS_INTERFACE,
+        &["name", "fetchItem", "create"],
+    );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -481,8 +490,8 @@ pub mod inner_module {
 #[wasm_bindgen]
 pub struct WasmInnerImpl;
 
-// Module-qualified path — the macro generates
-// `inner_module::__JS_INTERFACE_INNER_TRAIT` directly.
+// Module-qualified path — the macro accesses the associated const via
+// `<WasmInnerImpl as inner_module::InnerTrait>::__JS_INTERFACE`.
 #[wasm_implements(inner_module::InnerTrait)]
 #[wasm_bindgen(js_class = "WasmInnerImpl")]
 impl WasmInnerImpl {

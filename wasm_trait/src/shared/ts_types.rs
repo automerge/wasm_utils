@@ -73,7 +73,7 @@ pub(crate) fn rust_type_to_ts(ty: &Type) -> String {
                         if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
                             let inner_ts = rust_type_to_ts(inner);
                             if inner_ts == "number" {
-                                // Vec<u8> etc. → number[] but Uint8Array is more idiomatic
+                                // Numeric vectors currently map to Array<number>.
                                 return "Array<number>".into();
                             }
                             return alloc::format!("Array<{inner_ts}>");

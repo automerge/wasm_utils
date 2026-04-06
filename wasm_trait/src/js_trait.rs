@@ -23,7 +23,7 @@ use syn::{
 use crate::shared::{
     attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
     method::{arg_names, has_self_receiver, to_rpitit_signature},
-    naming::{extern_fn_ident, js_interface_const_ident},
+    naming::extern_fn_ident,
     ts_types::{async_return_to_ts, sync_return_to_ts},
 };
 
@@ -161,14 +161,12 @@ pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenSt
     let extern_block = gen_extern_block(trait_vis, js_type_ident, &ts_interface_name, &methods);
     let trait_output = gen_trait_def(trait_def, &methods);
     let impl_block = gen_impl_block(trait_name, js_type_ident, &methods);
-    let js_names_const = gen_js_names_const(trait_name, trait_vis, &methods);
 
     quote! {
         #ts_section
         #extern_block
         #trait_output
         #impl_block
-        #js_names_const
     }
 }
 
@@ -440,6 +438,20 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         })
         .collect();
 
+    // Build the associated const with expected JS method names.
+    // This const is used by #[wasm_implements] to verify the impl block
+    // exports all required JS methods. It's an associated const on the
+    // trait so it resolves wherever the trait is in scope (even via `use`).
+    let js_names: Vec<String> = methods
+        .iter()
+        .map(|mi| {
+            mi.js_name
+                .clone()
+                .unwrap_or_else(|| extern_fn_ident(&mi.method.sig.ident).to_string())
+        })
+        .collect();
+    let js_name_literals: Vec<_> = js_names.iter().map(|s| quote!(#s)).collect();
+
     let trait_attrs: Vec<_> = trait_def.attrs.iter().collect();
     let trait_supertraits = &trait_def.supertraits;
     let colon_token = trait_def.colon_token;
@@ -448,6 +460,9 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         quote! {
             #(#trait_attrs)*
             #trait_vis trait #trait_name {
+                #[doc(hidden)]
+                const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
+
                 #(#trait_methods)*
             }
         }
@@ -455,6 +470,9 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         quote! {
             #(#trait_attrs)*
             #trait_vis trait #trait_name #colon_token #trait_supertraits {
+                #[doc(hidden)]
+                const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
+
                 #(#trait_methods)*
             }
         }
@@ -499,36 +517,6 @@ fn gen_impl_block(
         impl #trait_name for #js_type_ident {
             #(#impl_methods)*
         }
-    }
-}
-
-/// Generate a hidden const containing the expected JS method names.
-///
-/// This const is used by `#[wasm_implements]` to verify that an impl block
-/// exports all the JS method names required by the interface.
-fn gen_js_names_const(
-    trait_name: &Ident,
-    trait_vis: &syn::Visibility,
-    methods: &[MethodInfo<'_>],
-) -> TokenStream {
-    let const_ident = js_interface_const_ident(trait_name);
-
-    let js_names: Vec<String> = methods
-        .iter()
-        .map(|mi| {
-            // Use the explicit js_name if provided, otherwise fall back
-            // to the extern fn name (which is what wasm-bindgen will use)
-            mi.js_name
-                .clone()
-                .unwrap_or_else(|| extern_fn_ident(&mi.method.sig.ident).to_string())
-        })
-        .collect();
-
-    let js_name_literals: Vec<_> = js_names.iter().map(|s| quote!(#s)).collect();
-
-    quote! {
-        #[doc(hidden)]
-        #trait_vis const #const_ident: &[&str] = &[#(#js_name_literals),*];
     }
 }
 
@@ -659,8 +647,8 @@ mod tests {
         )?;
 
         assert!(
-            output.contains("__JS_INTERFACE_TRANSPORT"),
-            "must generate the JS interface const.\nOutput: {output}",
+            output.contains("__JS_INTERFACE"),
+            "trait must contain the associated __JS_INTERFACE const.\nOutput: {output}",
         );
         assert!(
             output.contains(r#""sendBytes""#),
