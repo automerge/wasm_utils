@@ -29,3 +29,12 @@ pub(crate) fn tag_method_js_name(trait_name: &Ident) -> String {
 pub(crate) fn extern_fn_ident(method_name: &Ident) -> Ident {
     Ident::new(&format!("__wasm_trait_{method_name}"), method_name.span())
 }
+
+/// Generate the Rust ident for the hidden JS interface names const.
+///
+/// Given trait name `Transport`, returns `__JS_INTERFACE_TRANSPORT`.
+pub(crate) fn js_interface_const_ident(trait_name: &Ident) -> Ident {
+    use heck::ToShoutySnakeCase;
+    let screaming = trait_name.to_string().to_shouty_snake_case();
+    Ident::new(&format!("__JS_INTERFACE_{screaming}"), trait_name.span())
+}

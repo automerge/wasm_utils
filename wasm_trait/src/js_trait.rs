@@ -23,7 +23,7 @@ use syn::{
 use crate::shared::{
     attrs::strip_wasm_bindgen,
     method::{arg_names, has_self_receiver, to_rpitit_signature},
-    naming::extern_fn_ident,
+    naming::{extern_fn_ident, js_interface_const_ident},
     ts_types::{async_return_to_ts, sync_return_to_ts},
 };
 
@@ -181,12 +181,14 @@ pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenSt
     let extern_block = gen_extern_block(trait_vis, js_type_ident, &ts_interface_name, &methods);
     let trait_output = gen_trait_def(trait_def, &methods);
     let impl_block = gen_impl_block(trait_name, js_type_ident, &methods);
+    let js_names_const = gen_js_names_const(trait_name, trait_vis, &methods);
 
     quote! {
         #ts_section
         #extern_block
         #trait_output
         #impl_block
+        #js_names_const
     }
 }
 
@@ -504,6 +506,36 @@ fn gen_impl_block(
     }
 }
 
+/// Generate a hidden const containing the expected JS method names.
+///
+/// This const is used by `#[wasm_implements]` to verify that an impl block
+/// exports all the JS method names required by the interface.
+fn gen_js_names_const(
+    trait_name: &Ident,
+    trait_vis: &syn::Visibility,
+    methods: &[MethodInfo<'_>],
+) -> TokenStream {
+    let const_ident = js_interface_const_ident(trait_name);
+
+    let js_names: Vec<String> = methods
+        .iter()
+        .map(|mi| {
+            // Use the explicit js_name if provided, otherwise fall back
+            // to the extern fn name (which is what wasm-bindgen will use)
+            mi.js_name
+                .clone()
+                .unwrap_or_else(|| extern_fn_ident(&mi.method.sig.ident).to_string())
+        })
+        .collect();
+
+    let js_name_literals: Vec<_> = js_names.iter().map(|s| quote!(#s)).collect();
+
+    quote! {
+        #[doc(hidden)]
+        #trait_vis const #const_ident: &[&str] = &[#(#js_name_literals),*];
+    }
+}
+
 /// Generate an async impl method body with `JsFuture` + `unchecked_into`.
 fn gen_async_impl_method(
     mi: &MethodInfo<'_>,
@@ -604,6 +636,52 @@ mod tests {
         assert!(
             output.contains("typescript_type = \"Transport\""),
             "must set typescript_type to trait name.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn generates_js_interface_const() {
+        let output = expand(
+            quote!(js_type = JsTransport),
+            quote! {
+                pub trait Transport {
+                    #[wasm_bindgen(js_name = "sendBytes")]
+                    fn js_send_bytes(&self, bytes: u32);
+
+                    #[wasm_bindgen(js_name = "recvBytes")]
+                    fn js_recv_bytes(&self) -> u32;
+                }
+            },
+        );
+
+        assert!(
+            output.contains("__JS_INTERFACE_TRANSPORT"),
+            "must generate the JS interface const.\nOutput: {output}",
+        );
+        assert!(
+            output.contains(r#""sendBytes""#),
+            "const must contain sendBytes.\nOutput: {output}",
+        );
+        assert!(
+            output.contains(r#""recvBytes""#),
+            "const must contain recvBytes.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn js_interface_const_uses_mangled_name_without_js_name() {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    fn js_bare_method(&self);
+                }
+            },
+        );
+
+        assert!(
+            output.contains("__wasm_trait_js_bare_method"),
+            "const must use the mangled extern fn name when no js_name attr.\nOutput: {output}",
         );
     }
 

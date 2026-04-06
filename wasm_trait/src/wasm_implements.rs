@@ -5,15 +5,18 @@
 //! 2. A hidden `const _: () = { impl Trait for Type { ... } }` witness
 //!    for compile-time signature checking
 
-use alloc::vec::Vec;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{spanned::Spanned, ImplItem, ImplItemFn, ItemImpl, Path};
 
 use crate::shared::{
-    attrs::strip_wasm_bindgen,
+    attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
     method::{arg_names, has_self_receiver, is_pub, to_rpitit_signature},
-    naming::{tag_method_js_name, tag_method_rust_ident},
+    naming::{js_interface_const_ident, tag_method_js_name, tag_method_rust_ident},
 };
 
 /// Core implementation of `#[wasm_implements]`.
@@ -81,6 +84,19 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
         })
         .collect();
 
+    // Extract JS names from pub methods BEFORE injecting the tag method
+    // (to avoid borrow conflict with impl_block.items).
+    let actual_js_names: Vec<String> = pub_methods
+        .iter()
+        .map(|method| {
+            extract_js_name_from_attrs(&method.attrs)
+                .unwrap_or_else(|| method.sig.ident.to_string())
+        })
+        .collect();
+
+    // Drop the borrow on pub_methods so we can mutate impl_block
+    drop(pub_methods);
+
     // Generate the runtime tag method
     let tag_rust_name = tag_method_rust_ident(trait_name);
     let tag_js_name = tag_method_js_name(trait_name);
@@ -95,7 +111,7 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
     // Inject tag method into the original impl block
     impl_block.items.push(ImplItem::Fn(tag_method));
 
-    // Generate the hidden witness
+    // Generate the hidden witness (Rust signature check)
     let witness = quote! {
         const _: () = {
             impl #trait_path for #self_ty {
@@ -104,9 +120,61 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
         };
     };
 
+    let js_name_check = gen_js_name_check(trait_name, &actual_js_names);
+
     quote! {
         #impl_block
         #witness
+        #js_name_check
+    }
+}
+
+/// Generate a compile-time assertion that the impl block's JS method names
+/// match those expected by the trait's `__JS_INTERFACE_*` const.
+fn gen_js_name_check(trait_name: &syn::Ident, actual_js_names: &[String]) -> TokenStream {
+    let actual_literals: Vec<TokenStream> = actual_js_names.iter().map(|s| quote!(#s)).collect();
+    let expected_const = js_interface_const_ident(trait_name);
+
+    quote! {
+        const _: () = {
+            const __ACTUAL: &[&str] = &[#(#actual_literals),*];
+            const __EXPECTED: &[&str] = #expected_const;
+
+            const fn __wasm_trait_str_eq(a: &str, b: &str) -> bool {
+                let a = a.as_bytes();
+                let b = b.as_bytes();
+                if a.len() != b.len() { return false; }
+                let mut i = 0;
+                while i < a.len() {
+                    if a[i] != b[i] { return false; }
+                    i += 1;
+                }
+                true
+            }
+
+            const fn __wasm_trait_contains(haystack: &[&str], needle: &str) -> bool {
+                let mut i = 0;
+                while i < haystack.len() {
+                    if __wasm_trait_str_eq(haystack[i], needle) { return true; }
+                    i += 1;
+                }
+                false
+            }
+
+            const fn __wasm_trait_check(expected: &[&str], actual: &[&str]) -> bool {
+                let mut i = 0;
+                while i < expected.len() {
+                    if !__wasm_trait_contains(actual, expected[i]) { return false; }
+                    i += 1;
+                }
+                true
+            }
+
+            const { assert!(
+                __wasm_trait_check(__EXPECTED, __ACTUAL),
+                "impl block is missing one or more JS methods required by the interface (check js_name attrs)"
+            ); }
+        };
     }
 }
 
@@ -340,6 +408,100 @@ mod tests {
         assert!(
             witness_section.contains("js_put"),
             "witness must include public methods.\nWitness: {witness_section}",
+        );
+    }
+
+    #[test]
+    fn generates_js_name_check() {
+        let output = expand(
+            quote!(Transport),
+            quote! {
+                impl WasmFoo {
+                    #[wasm_bindgen(js_name = "sendBytes")]
+                    pub fn js_send_bytes(&self, value: u32) -> u32 { value }
+                }
+            },
+        );
+
+        assert!(
+            output.contains("__JS_INTERFACE_TRANSPORT"),
+            "must reference the JS interface const.\nOutput: {output}",
+        );
+        assert!(
+            output.contains("sendBytes"),
+            "must include the JS method name in the check.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn js_name_check_includes_all_methods() {
+        let output = expand(
+            quote!(Storage),
+            quote! {
+                impl WasmFoo {
+                    #[wasm_bindgen(js_name = "save")]
+                    pub fn js_save(&self, value: u32) { }
+
+                    #[wasm_bindgen(js_name = "load")]
+                    pub fn js_load(&self, key: u32) -> u32 { key }
+
+                    #[wasm_bindgen(js_name = "delete")]
+                    pub fn js_delete(&self, key: u32) -> bool { true }
+                }
+            },
+        );
+
+        assert!(
+            output.contains(r#""save""#),
+            "must include 'save' in actual JS names.\nOutput: {output}",
+        );
+        assert!(
+            output.contains(r#""load""#),
+            "must include 'load' in actual JS names.\nOutput: {output}",
+        );
+        assert!(
+            output.contains(r#""delete""#),
+            "must include 'delete' in actual JS names.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn js_name_check_uses_rust_name_when_no_js_name() {
+        let output = expand(
+            quote!(Transport),
+            quote! {
+                impl WasmFoo {
+                    pub fn js_send_bytes(&self, value: u32) -> u32 { value }
+                }
+            },
+        );
+
+        // Without #[wasm_bindgen(js_name = "...")], the Rust method name is used
+        assert!(
+            output.contains(r#""js_send_bytes""#),
+            "must use Rust method name when no js_name attr.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn js_name_check_contains_const_assertion() {
+        let output = expand(
+            quote!(Transport),
+            quote! {
+                impl WasmFoo {
+                    #[wasm_bindgen(js_name = "send")]
+                    pub fn js_send(&self) {}
+                }
+            },
+        );
+
+        assert!(
+            output.contains("__wasm_trait_check"),
+            "must generate the const fn check.\nOutput: {output}",
+        );
+        assert!(
+            output.contains("assert !"),
+            "must generate a const assert.\nOutput: {output}",
         );
     }
 }
