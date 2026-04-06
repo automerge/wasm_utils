@@ -218,7 +218,7 @@ fn validate_trait(trait_def: &ItemTrait) -> Option<TokenStream> {
                         .to_compile_error(),
                 );
             }
-            _ => {}
+            TraitItem::Fn(_) | TraitItem::Macro(_) | TraitItem::Verbatim(_) | _ => {}
         }
     }
 
@@ -316,7 +316,7 @@ fn gen_ts_section(
                     if let FnArg::Typed(pat_type) = arg {
                         let param_name = match pat_type.pat.as_ref() {
                             syn::Pat::Ident(pi) => pi.ident.to_string(),
-                            _ => "_".into(),
+                            syn::Pat::Wild(_) | _ => "_".into(),
                         };
                         let ts_type = crate::shared::ts_types::rust_type_to_ts(&pat_type.ty);
                         Some(format!("{param_name}: {ts_type}"))

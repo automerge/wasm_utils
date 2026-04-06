@@ -171,7 +171,7 @@ trait CoreDocStorage {
 ///
 /// For demonstration, we show the sync-to-sync bridge for Auth, which
 /// works naturally:
-
+///
 /// Sync bridge works: Auth → CoreAuth
 trait CoreAuth {
     fn current_user(&self) -> String;
@@ -271,42 +271,29 @@ fn check_access_core<A: CoreAuth>(auth: &A, resource: &str) -> bool {
 struct MockDocStorage;
 
 impl DocStorage for MockDocStorage {
-    fn js_save_document(
-        &self,
-        _id: JsValue,
-        _content: JsValue,
-    ) -> impl core::future::Future<Output = Result<(), JsValue>> + '_ {
-        async { Ok(()) }
+    async fn js_save_document(&self, _id: JsValue, _content: JsValue) -> Result<(), JsValue> {
+        Ok(())
     }
 
-    fn js_load_document(
-        &self,
-        _id: JsValue,
-    ) -> impl core::future::Future<Output = Result<JsValue, JsValue>> + '_ {
-        async { Ok(JsValue::NULL) }
+    async fn js_load_document(&self, _id: JsValue) -> Result<JsValue, JsValue> {
+        Ok(JsValue::NULL)
     }
 
-    fn js_list_documents(
-        &self,
-    ) -> impl core::future::Future<Output = Result<js_sys::Array, JsValue>> + '_ {
-        async { Ok(js_sys::Array::new()) }
+    async fn js_list_documents(&self) -> Result<js_sys::Array, JsValue> {
+        Ok(js_sys::Array::new())
     }
 
-    fn js_delete_document(
-        &self,
-        _id: JsValue,
-    ) -> impl core::future::Future<Output = Result<(), JsValue>> + '_ {
-        async { Ok(()) }
+    async fn js_delete_document(&self, _id: JsValue) -> Result<(), JsValue> {
+        Ok(())
     }
 }
 
-// DX VERDICT on 6f: Manual impl DOES work! The RPITIT approach means you
-// can implement the trait with `-> impl Future<Output = ...> + '_` and
-// return an `async` block. This is much better than if the macro had used
-// `#[async_trait]` which would require `Pin<Box<dyn Future>>`.
+// DX VERDICT on 6f: Manual impl DOES work! The trait uses `async fn`
+// directly, so mocks just write `async fn` — no RPITIT boilerplate.
+// This is much better than if the macro had used `#[async_trait]` which
+// would require `Pin<Box<dyn Future>>`.
 //
-// However, the ergonomics of writing out the full RPITIT signature are
-// verbose. A helper macro like `#[wasm_mock(DocStorage)]` could generate
+// A helper macro like `#[wasm_mock(DocStorage)]` could still generate
 // a mock skeleton.
 
 // --- 6g. Sync mock is straightforward ---

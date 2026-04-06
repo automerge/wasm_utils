@@ -50,7 +50,12 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
         .iter()
         .filter_map(|item| match item {
             ImplItem::Fn(method) if is_pub(method) => Some(method),
-            _ => None,
+            ImplItem::Const(_)
+            | ImplItem::Fn(_)
+            | ImplItem::Type(_)
+            | ImplItem::Macro(_)
+            | ImplItem::Verbatim(_)
+            | _ => None,
         })
         .collect();
 

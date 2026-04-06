@@ -94,7 +94,18 @@ pub(crate) fn rust_type_to_ts(ty: &Type) -> String {
             alloc::format!("Array<{inner_ts}>")
         }
 
-        _ => "any".into(),
+        Type::Array(_)
+        | Type::BareFn(_)
+        | Type::Group(_)
+        | Type::ImplTrait(_)
+        | Type::Infer(_)
+        | Type::Macro(_)
+        | Type::Never(_)
+        | Type::Paren(_)
+        | Type::Ptr(_)
+        | Type::TraitObject(_)
+        | Type::Verbatim(_)
+        | _ => "any".into(),
     }
 }
 
