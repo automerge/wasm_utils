@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -23,8 +27,11 @@ jobs:
     - name: Build workspace
       run: cargo build --workspace --verbose
 
+    - name: Build workspace (all features)
+      run: cargo build --workspace --all-features --verbose
+
     - name: Check workspace
-      run: cargo check --workspace --verbose
+      run: cargo check --workspace --all-features --verbose
 
     - name: Install Nightly Toolchain
       run: rustup toolchain install nightly --component rustfmt
@@ -33,4 +40,12 @@ jobs:
       run: cargo +nightly fmt --all -- --check
 
     - name: Clippy
-      run: cargo clippy --workspace --all-targets -- -D warnings
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: Documentation
+      env:
+        RUSTDOCFLAGS: "-D warnings"
+      run: cargo doc --workspace --no-deps
+
+    - name: Check no_std compatibility
+      run: cargo check -p wasm_trait --no-default-features
