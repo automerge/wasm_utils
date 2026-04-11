@@ -2,9 +2,11 @@
 resolver = "2"
 members = [
     "from_js_ref",
+    "tests/wasm_error_tests",
     "tests/wasm_trait_tests",
-    "wasm_refgen",
+    "wasm_bindgen_error",
     "wasm_bindgen_trait",
+    "wasm_refgen",
 ]
 
 [workspace.package]
