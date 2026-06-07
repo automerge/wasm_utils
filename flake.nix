@@ -2,7 +2,7 @@
   description = "wasm_utils";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-25.11";
+    nixpkgs.url = "nixpkgs/nixos-26.05";
     nixpkgs-unstable.url = "nixpkgs/nixpkgs-unstable";
 
     command-utils.url = "git+https://codeberg.org/expede/nix-command-utils";
@@ -118,18 +118,18 @@
         devShells.default = pkgs.mkShell {
           name = "wasm_utils shell";
 
-          nativeBuildInputs = with pkgs;
-            [
-              command_menu
+          nativeBuildInputs =
+            command_menu
+            ++ [
               nightly-rustfmt
               rust-toolchain
 
-              http-server
               pkgs.binaryen
-              pkgs.nodePackages_latest.webpack-cli
+              pkgs.http-server
               pkgs.nodejs_22
               pkgs.rust-analyzer
               pkgs.wasm-pack
+              pkgs.webpack-cli
             ]
             ++ format-pkgs
             ++ cargo-installs;
