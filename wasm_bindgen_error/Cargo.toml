@@ -20,6 +20,9 @@ proc-macro2.workspace = true
 quote.workspace = true
 syn.workspace = true
 
+[dev-dependencies]
+bolero = "0.11"
+
 [lints]
 workspace = true
 

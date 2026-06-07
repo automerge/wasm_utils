@@ -567,3 +567,46 @@ fn ts_stress_async_returns_future() {
     assert_future(&mock.js_send_void());
     assert_future(&mock.js_fetch_array());
 }
+
+// ── Wrong return type: gated behind #[cfg(any())] ──────────────────
+// The witness impl in #[wasm_implements] catches return type mismatches
+// at compile time. This block is gated off to document the expected error.
+
+#[cfg(any())]
+mod misuse_wrong_return_type {
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen_trait::{js_trait, wasm_implements};
+
+    #[js_trait(js_type = JsTyped)]
+    pub trait Typed {
+        #[wasm_bindgen(js_name = "getValue")]
+        fn js_get_value(&self) -> String;
+    }
+
+    #[wasm_bindgen]
+    pub struct WrongReturn;
+
+    // Should fail: returns u32 instead of String
+    #[wasm_implements(Typed)]
+    #[wasm_bindgen(js_class = "WrongReturn")]
+    impl WrongReturn {
+        #[wasm_bindgen(js_name = "getValue")]
+        pub fn js_get_value(&self) -> u32 {
+            42
+        }
+    }
+}
+
+// ── Trait with supertraits compiles ────────────────────────────────
+
+#[js_trait(js_type = JsWithSuper)]
+pub trait WithSuper: Send + Sync {
+    #[wasm_bindgen(js_name = "id")]
+    fn js_id(&self) -> u32;
+}
+
+#[test]
+fn supertrait_compiles() {
+    fn assert_trait<T: WithSuper>() {}
+    assert_trait::<JsWithSuper>();
+}

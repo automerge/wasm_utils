@@ -11,7 +11,7 @@
 //!
 //! Writing this by hand is pure boilerplate — the body is always:
 //!
-//! ```rust,ignore
+//! ```ignore
 //! impl From<MyError> for JsValue {
 //!     fn from(err: MyError) -> Self {
 //!         let js_err = js_sys::Error::new(&err.to_string());
@@ -25,7 +25,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,ignore
+//! ```ignore
 //! use wasm_bindgen_error::WasmError;
 //! use thiserror::Error;
 //!
@@ -40,6 +40,8 @@
 //! #[error(transparent)]
 //! pub struct WasmIoError(#[from] IoError);
 //! ```
+//!
+//! _Compiled and tested in `tests/wasm_error_tests/src/doc_examples.rs`._
 //!
 //! The derive requires that the type implements [`core::error::Error`]
 //! (which implies [`core::fmt::Display`] + [`core::fmt::Debug`]).
@@ -78,6 +80,13 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     let js_name = extract_js_name(input)?;
 
     let js_name_str = js_name.unwrap_or_else(|| strip_wasm_prefix(&type_name.to_string()));
+
+    if js_name_str.trim().is_empty() {
+        return Err(syn::Error::new(
+            type_name.span(),
+            "resolved JS error name is empty — use #[wasm_error(js_name = \"...\")] to specify a name",
+        ));
+    }
 
     // Extend any existing where clause with a `Self: ::core::error::Error` bound
     // so we get a clear compile error if the type doesn't implement Error.
@@ -558,5 +567,89 @@ mod tests {
             !err.is_empty(),
             "must reject bare key without `= \"value\"`.\nError: {err}",
         );
+    }
+
+    #[test]
+    fn error_on_empty_js_name_from_prefix_strip() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            pub struct Wasm;
+        });
+
+        assert!(
+            err.contains("resolved JS error name is empty"),
+            "must reject type named exactly `Wasm` (empty name after stripping).\nError: {err}",
+        );
+    }
+
+    #[test]
+    fn error_on_empty_explicit_js_name() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            #[wasm_error(js_name = "")]
+            pub struct WasmFooError;
+        });
+
+        assert!(
+            err.contains("resolved JS error name is empty"),
+            "must reject empty explicit js_name.\nError: {err}",
+        );
+    }
+
+    #[test]
+    fn error_on_whitespace_only_js_name() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            #[wasm_error(js_name = "   ")]
+            pub struct WasmFooError;
+        });
+
+        assert!(
+            err.contains("resolved JS error name is empty"),
+            "must reject whitespace-only js_name.\nError: {err}",
+        );
+    }
+
+    #[test]
+    fn duplicate_wasm_error_attrs_uses_first() {
+        let output = expand(quote! {
+            #[derive(Debug)]
+            #[wasm_error(js_name = "First")]
+            #[wasm_error(js_name = "Second")]
+            pub struct WasmDuplicateError;
+        });
+
+        assert!(
+            output.contains(r#"set_name ("First")"#) || output.contains(r#"set_name("First")"#),
+            "first #[wasm_error] attribute should win.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn strip_wasm_prefix_properties() {
+        bolero::check!()
+            .with_type::<alloc::string::String>()
+            .for_each(|name| {
+                let result = strip_wasm_prefix(name);
+
+                // Invariant 1: if input starts with "Wasm", output does not
+                if let Some(rest) = name.strip_prefix("Wasm") {
+                    assert_eq!(result, rest);
+                }
+
+                // Invariant 2: if input does not start with "Wasm", output == input
+                if !name.starts_with("Wasm") {
+                    assert_eq!(result, *name);
+                }
+
+                // Invariant 3: empty result only when input is "" or exactly "Wasm"
+                if result.is_empty() {
+                    assert!(
+                        name.is_empty() || name == "Wasm",
+                        "result was empty for input: {name:?}"
+                    );
+                }
+            });
     }
 }

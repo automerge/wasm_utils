@@ -82,6 +82,9 @@
 //!
 //! If any method is missing or has the wrong signature, the compiler catches it.
 //!
+//! _All code examples above are compiled and tested in
+//! `tests/wasm_trait_tests/src/doc_examples.rs`._
+//!
 //! # Bridging to Domain Traits
 //!
 //! The generated trait uses JS-boundary types (`JsValue`, `Uint8Array`, etc.).

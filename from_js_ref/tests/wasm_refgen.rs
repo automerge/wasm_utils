@@ -1,3 +1,11 @@
+#![allow(
+    clippy::missing_const_for_fn,
+    clippy::must_use_candidate,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    missing_docs
+)]
+
 use from_js_ref::FromJsRef as _;
 use wasm_bindgen::prelude::*;
 use wasm_refgen::wasm_refgen;
