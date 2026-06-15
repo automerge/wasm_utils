@@ -13,6 +13,7 @@ html
 https
 ident
 impl
+impls
 instanceof
 JS
 JS-imported
@@ -29,6 +30,7 @@ repo
 SDK
 sexualized
 socio-economic
+stringly-typed
 struct
 structs
 struct's
