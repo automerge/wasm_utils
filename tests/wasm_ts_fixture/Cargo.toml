@@ -1,0 +1,27 @@
+# Standalone (non-workspace) fixture crate. It is built with `wasm-pack build`
+# to emit a `.d.ts`, which a TypeScript consumer then type-checks via `tsc`.
+# The empty `[workspace]` table detaches it from the parent workspace so host
+# `cargo` commands never try to build this cdylib.
+[workspace]
+
+[package]
+name = "wasm_ts_fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+from_js_ref = { path = "../../from_js_ref" }
+js-sys = "0.3"
+wasm-bindgen = "0.2.104"
+wasm-bindgen-futures = "0.4"
+wasm_bindgen_error = { path = "../../wasm_bindgen_error" }
+wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }
+wasm_refgen = { path = "../../wasm_refgen" }
+
+[dependencies.thiserror]
+version = "2.0"
+default-features = false

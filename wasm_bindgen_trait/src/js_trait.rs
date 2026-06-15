@@ -530,9 +530,20 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
     let trait_supertraits = &trait_def.supertraits;
     let colon_token = trait_def.colon_token;
 
+    // Suppress the `async_fn_in_trait` warning when the trait has async
+    // methods. The warning is about missing `Send` bounds on the returned
+    // future, which is irrelevant in Wasm (single-threaded runtime).
+    let has_async = methods.iter().any(|mi| mi.is_async);
+    let async_allow = if has_async {
+        quote!(#[allow(async_fn_in_trait)])
+    } else {
+        quote!()
+    };
+
     if trait_supertraits.is_empty() {
         quote! {
             #(#trait_attrs)*
+            #async_allow
             #trait_vis trait #trait_name {
                 #[doc(hidden)]
                 const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
@@ -543,6 +554,7 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
     } else {
         quote! {
             #(#trait_attrs)*
+            #async_allow
             #trait_vis trait #trait_name #colon_token #trait_supertraits {
                 #[doc(hidden)]
                 const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
@@ -1699,6 +1711,111 @@ mod tests {
         assert!(
             output.contains("reset(): void;"),
             "Method with no return type must map to 'void' in TS.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    // ── Deeply nested generic types ────────────────────────────────
+
+    #[test]
+    fn ts_nested_result_option_vec() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsNested),
+            quote! {
+                pub trait Nested {
+                    #[wasm_bindgen(js_name = "find")]
+                    fn js_find(&self) -> Option<Vec<String>>;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("Array<string> | null"),
+            "Option<Vec<String>> must map to 'Array<string> | null'.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ts_vec_of_vec() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsMatrix),
+            quote! {
+                pub trait Matrix {
+                    #[wasm_bindgen(js_name = "rows")]
+                    fn js_rows(&self) -> Vec<Vec<u32>>;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("Array<Array<number>>"),
+            "Vec<Vec<u32>> must map to 'Array<Array<number>>'.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    // ── Parse error recovery ───────────────────────────────────────
+
+    #[test]
+    fn error_on_empty_args() {
+        let result = expand(
+            quote!(),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "bar")]
+                    fn js_bar(&self);
+                }
+            },
+        );
+
+        assert!(
+            result.is_err(),
+            "empty #[js_trait()] args must produce an error",
+        );
+    }
+
+    #[test]
+    fn error_on_string_js_type() {
+        let result = expand(
+            quote!(js_type = "NotAnIdent"),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "bar")]
+                    fn js_bar(&self);
+                }
+            },
+        );
+
+        assert!(
+            result.is_err(),
+            "string literal for js_type must produce an error",
+        );
+    }
+
+    // ── Trait with supertraits ─────────────────────────────────────
+
+    #[test]
+    fn trait_with_supertrait_compiles() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsDerived),
+            quote! {
+                pub trait Derived: Send + Sync {
+                    #[wasm_bindgen(js_name = "value")]
+                    fn js_value(&self) -> u32;
+                }
+            },
+        )?;
+
+        // The trait should preserve supertraits
+        assert!(
+            output.contains("Send") && output.contains("Sync"),
+            "supertraits must be preserved.\nOutput: {output}",
+        );
+        // And still generate normally
+        assert!(
+            output.contains("impl Derived for JsDerived"),
+            "must still generate impl block.\nOutput: {output}",
         );
         Ok(())
     }

@@ -47,12 +47,15 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
     }
 
     // Get the type name (e.g., JsFoo)
+    #[allow(clippy::wildcard_enum_match_arm)]
     let ty_ident = match &*impl_block.self_ty {
-        syn::Type::Path(tp) => tp.path.segments.last().unwrap().ident.clone(),
-        _ => {
-            return syn::Error::new_spanned(&impl_block.self_ty, "expected a simple type name")
-                .to_compile_error();
-        }
+        syn::Type::Path(tp) => tp.path.segments.last().map(|seg| seg.ident.clone()),
+        _ => None,
+    };
+
+    let Some(ty_ident) = ty_ident else {
+        return syn::Error::new_spanned(&impl_block.self_ty, "expected a simple type name")
+            .to_compile_error();
     };
 
     let core_name = ty_ident.to_string();
@@ -71,7 +74,7 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
         .to_compile_error();
     };
 
-    let upcast_tag = format!("__wasm_refgen_to{}", core_name);
+    let upcast_tag = format!("__wasm_refgen_to{core_name}");
     let method_ident = format_ident!("__wasm_refgen_to_{}", core_snake);
 
     let injected_doc = format!("Upcasts; to the JS-import type for [`{ty_ident}`].");
@@ -170,7 +173,7 @@ impl Parse for Args {
             }
 
             if input.peek(Comma) {
-                let _ = input.parse::<Comma>();
+                drop(input.parse::<Comma>());
             }
         }
 
@@ -221,6 +224,7 @@ fn find_js_class(attrs: &[Attribute]) -> Option<String> {
             continue;
         };
         for m in metas {
+            #[allow(clippy::wildcard_enum_match_arm)]
             if let Some(val) = match &m {
                 Meta::NameValue(nv) if nv.path.is_ident("js_class") => meta_value_as_string(&m),
                 _ => None,
@@ -480,6 +484,79 @@ mod tests {
         assert!(
             output.contains("Reflect :: has") || output.contains("Reflect::has"),
             "must use Reflect::has.\nOutput: {output}",
+        );
+    }
+
+    // ── Error quality: non-Clone type ──────────────────────────────
+    // The macro generates `self.clone()`, so missing Clone surfaces as
+    // a rustc error, not a macro error. This test documents that the
+    // macro itself doesn't reject it — the error comes later.
+    #[test]
+    fn non_clone_type_still_expands() {
+        let output = expand(
+            quote!(js_ref = JsNonClone),
+            quote! {
+                #[wasm_bindgen(js_class = "NonClone")]
+                impl NonClone {}
+            },
+        );
+
+        // The macro expands without error (clone() call is in generated code)
+        assert!(
+            output.contains("clone"),
+            "macro must generate clone() call that will fail at type-check.\nOutput: {output}",
+        );
+    }
+
+    // The self type is reduced to its last path segment's identifier, so any
+    // generic arguments are dropped (`WasmContainer<u32>` -> `WasmContainer`).
+    // wasm-bindgen can't export generic types, so this is moot in practice.
+    #[test]
+    fn generic_self_type_uses_last_path_segment() {
+        let output = expand(
+            quote!(js_ref = JsGeneric),
+            quote! {
+                #[wasm_bindgen(js_class = "Generic")]
+                impl WasmContainer<u32> {}
+            },
+        );
+
+        assert!(
+            output.contains("JsGeneric"),
+            "must emit the JsGeneric reference type.\nOutput: {output}",
+        );
+    }
+
+    // Two impl blocks on the same type with different `js_ref` names generate
+    // two distinct extern reference types.
+    #[test]
+    fn different_js_ref_names_generate_different_extern_types() {
+        let output1 = expand(
+            quote!(js_ref = JsFooV1),
+            quote! {
+                #[wasm_bindgen(js_class = "Foo")]
+                impl WasmFoo {
+                    pub fn method_a(&self) {}
+                }
+            },
+        );
+        let output2 = expand(
+            quote!(js_ref = JsFooV2),
+            quote! {
+                #[wasm_bindgen(js_class = "Foo")]
+                impl WasmFoo {
+                    pub fn method_b(&self) {}
+                }
+            },
+        );
+
+        assert!(
+            output1.contains("JsFooV1"),
+            "first expansion must use JsFooV1.\nOutput: {output1}",
+        );
+        assert!(
+            output2.contains("JsFooV2"),
+            "second expansion must use JsFooV2.\nOutput: {output2}",
         );
     }
 }

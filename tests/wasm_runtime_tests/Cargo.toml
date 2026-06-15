@@ -1,0 +1,31 @@
+[package]
+name = "wasm_runtime_tests"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+# This crate holds `#[wasm_bindgen_test]` cases that exercise the *runtime*
+# behavior of the generated code (JS Error.name, Reflect::has duck-typing,
+# FromJsRef roundtrips, async JsFuture resolution/rejection). It only compiles
+# and runs under `wasm32-unknown-unknown` via `wasm-pack test`; it is excluded
+# from the default `cargo test --workspace` host run (see workspace Cargo.toml).
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+from_js_ref = { path = "../../from_js_ref" }
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm_bindgen_error = { path = "../../wasm_bindgen_error" }
+wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }
+wasm_refgen = { path = "../../wasm_refgen" }
+wasm-bindgen-test = "0.3"
+
+[dependencies.thiserror]
+version = "2.0"
+default-features = false
+
+[lints]
+workspace = true

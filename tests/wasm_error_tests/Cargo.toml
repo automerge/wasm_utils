@@ -1,0 +1,11 @@
+[package]
+name = "wasm_error_tests"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+js-sys.workspace = true
+thiserror = "2"
+wasm-bindgen.workspace = true
+wasm_bindgen_error = { path = "../../wasm_bindgen_error" }

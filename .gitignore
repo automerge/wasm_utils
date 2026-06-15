@@ -17,6 +17,9 @@ Cargo.lock
 .envrc.custom
 .direnv
 
+# wasm-pack output (TS fixture build artifacts)
+pkg/
+
 # Other files + dirs
 private
 *.temp
