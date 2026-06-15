@@ -93,13 +93,10 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         quote! { where #type_name #ty_generics: ::core::error::Error, }
     };
 
-    // The generated `From` impl lands in the *consumer* crate, which may be
-    // `#![no_std]`. A bare `err.to_string()` would require `ToString` to be in
-    // the consumer's prelude (only guaranteed under `std`). Instead, pull in
-    // `alloc` via a block-local `extern crate` — valid in both `std` and
-    // `no_std` + `alloc` crates, and hygienically named so it never collides
-    // with the consumer's own imports — then call `ToString::to_string` fully
-    // qualified so the trait need not be imported by the consumer.
+    // The `From` impl lands in the consumer crate, which may be `#![no_std]`
+    // where `ToString` isn't in the prelude. Pull in `alloc` via a block-local
+    // `extern crate` (valid under both `std` and `no_std`) and call
+    // `ToString::to_string` fully qualified, so the consumer needs no imports.
     Ok(quote! {
         impl #impl_generics ::core::convert::From<#type_name #ty_generics> for ::wasm_bindgen::JsValue
         #extended_where

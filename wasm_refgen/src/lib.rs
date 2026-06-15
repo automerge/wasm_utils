@@ -508,11 +508,11 @@ mod tests {
         );
     }
 
-    // ── Generic struct ─────────────────────────────────────────────
-    // wasm_refgen operates on impl blocks, not struct definitions, so
-    // generics on the self type are passed through.
+    // The self type is reduced to its last path segment's identifier, so any
+    // generic arguments are dropped (`WasmContainer<u32>` -> `WasmContainer`).
+    // wasm-bindgen can't export generic types, so this is moot in practice.
     #[test]
-    fn error_on_generic_self_type() {
+    fn generic_self_type_uses_last_path_segment() {
         let output = expand(
             quote!(js_ref = JsGeneric),
             quote! {
@@ -521,22 +521,14 @@ mod tests {
             },
         );
 
-        // The macro should still produce output (it extracts the last
-        // path segment as the type name, which would be `u32` for
-        // `WasmContainer<u32>` — this is likely wrong but let's document
-        // the behavior).
-        // Actually, syn parses `WasmContainer<u32>` as a Type::Path with
-        // the last segment being `WasmContainer` with angle-bracketed args.
         assert!(
-            !output.is_empty(),
-            "macro should produce output for generic self type",
+            output.contains("JsGeneric"),
+            "must emit the JsGeneric reference type.\nOutput: {output}",
         );
     }
 
-    // ── Duplicate wasm_refgen ──────────────────────────────────────
-    // Two different impl blocks with wasm_refgen on the same type but
-    // different js_ref names would generate two extern types. This is
-    // a user error but we document the behavior.
+    // Two impl blocks on the same type with different `js_ref` names generate
+    // two distinct extern reference types.
     #[test]
     fn different_js_ref_names_generate_different_extern_types() {
         let output1 = expand(

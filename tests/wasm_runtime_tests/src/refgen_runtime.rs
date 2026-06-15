@@ -46,7 +46,7 @@ impl WasmCommitWithBlob {
     }
 }
 
-/// A JS object that carries the magic upcast tag method for `WasmCounter`
+/// A JS object that carries the sentinel upcast tag method for `WasmCounter`
 /// (`__wasm_refgen_toWasmCounter`), plus the real exported `Counter`, so we can
 /// drive the duck-type path from JS-shaped values.
 #[wasm_bindgen(inline_js = r#"
