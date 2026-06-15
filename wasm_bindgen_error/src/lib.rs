@@ -631,28 +631,26 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn strip_wasm_prefix_properties() {
-        bolero::check!()
-            .with_type::<String>()
-            .for_each(|name| {
-                let result = strip_wasm_prefix(name);
+        bolero::check!().with_type::<String>().for_each(|name| {
+            let result = strip_wasm_prefix(name);
 
-                // Invariant 1: if input starts with "Wasm", output does not
-                if let Some(rest) = name.strip_prefix("Wasm") {
-                    assert_eq!(result, rest);
-                }
+            // Invariant 1: if input starts with "Wasm", output does not
+            if let Some(rest) = name.strip_prefix("Wasm") {
+                assert_eq!(result, rest);
+            }
 
-                // Invariant 2: if input does not start with "Wasm", output == input
-                if !name.starts_with("Wasm") {
-                    assert_eq!(result, *name);
-                }
+            // Invariant 2: if input does not start with "Wasm", output == input
+            if !name.starts_with("Wasm") {
+                assert_eq!(result, *name);
+            }
 
-                // Invariant 3: empty result only when input is "" or exactly "Wasm"
-                if result.is_empty() {
-                    assert!(
-                        name.is_empty() || name == "Wasm",
-                        "result was empty for input: {name:?}"
-                    );
-                }
-            });
+            // Invariant 3: empty result only when input is "" or exactly "Wasm"
+            if result.is_empty() {
+                assert!(
+                    name.is_empty() || name == "Wasm",
+                    "result was empty for input: {name:?}"
+                );
+            }
+        });
     }
 }
