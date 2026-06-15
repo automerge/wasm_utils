@@ -1,0 +1,96 @@
+name: Wasm Runtime Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Runtime behavior under Node (fast, no browser) ──────────────────────
+  wasm-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust with wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Run runtime tests (node)
+        run: wasm-pack test --node tests/wasm_runtime_tests
+
+  # ── Runtime behavior in real headless browsers ──────────────────────────
+  wasm-browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, chrome]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust with wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.browser }}
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Set up Firefox
+        if: matrix.browser == 'firefox'
+        uses: browser-actions/setup-firefox@v1
+
+      - name: Set up Chrome
+        if: matrix.browser == 'chrome'
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run runtime tests (${{ matrix.browser }})
+        run: wasm-pack test --headless --${{ matrix.browser }} tests/wasm_runtime_tests
+
+  # ── TypeScript acceptance: generated .d.ts must type-check ──────────────
+  ts-acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust with wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tests/wasm_ts_fixture
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build fixture and type-check generated .d.ts
+        run: tests/wasm_ts_fixture/check-ts.sh

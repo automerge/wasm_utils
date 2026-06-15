@@ -49,17 +49,13 @@ fn wasm_refgen_impl(args: Args, mut impl_block: ItemImpl) -> proc_macro2::TokenS
     // Get the type name (e.g., JsFoo)
     #[allow(clippy::wildcard_enum_match_arm)]
     let ty_ident = match &*impl_block.self_ty {
-        syn::Type::Path(tp) => tp
-            .path
-            .segments
-            .last()
-            .expect("path must have segments")
-            .ident
-            .clone(),
-        _ => {
-            return syn::Error::new_spanned(&impl_block.self_ty, "expected a simple type name")
-                .to_compile_error();
-        }
+        syn::Type::Path(tp) => tp.path.segments.last().map(|seg| seg.ident.clone()),
+        _ => None,
+    };
+
+    let Some(ty_ident) = ty_ident else {
+        return syn::Error::new_spanned(&impl_block.self_ty, "expected a simple type name")
+            .to_compile_error();
     };
 
     let core_name = ty_ident.to_string();

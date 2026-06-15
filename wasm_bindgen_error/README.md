@@ -5,15 +5,16 @@ Derive macro for converting Rust error types into named JS errors via `wasm-bind
 ## Usage
 
 ```rust
+use thiserror::Error;
 use wasm_bindgen_error::WasmError;
 
 // JS error name defaults to "HydrationError" (strips "Wasm" prefix)
-#[derive(Debug, WasmError)]
+#[derive(Debug, Error, WasmError)]
 #[error(transparent)]
 pub struct WasmHydrationError(#[from] HydrationError);
 
 // Explicit JS name override
-#[derive(Debug, WasmError)]
+#[derive(Debug, Error, WasmError)]
 #[wasm_error(js_name = "StorageFailure")]
 #[error(transparent)]
 pub struct WasmIoError(#[from] IoError);

@@ -48,7 +48,9 @@ let foo: WasmFoo = WasmFoo::from_js_ref(&js_foo);
 let foo: Option<WasmFoo> = WasmFoo::try_from_js_value(&js_value);
 ```
 
-> [!WARNING]
+<!-- Not a `[!WARNING]` callout: kept rustdoc-safe in case this README is ever
+     `include_str!`ed into rustdoc (see wasm_refgen). -->
+> **Warning:**
 > Do _not_ use `dyn_into::<JsFoo>()` or `dyn_ref::<JsFoo>()` with
 > `wasm_refgen`-generated types. These rely on `instanceof`, which
 > targets the Rust identifier name rather than the JS class name.

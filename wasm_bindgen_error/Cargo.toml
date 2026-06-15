@@ -25,7 +25,3 @@ bolero = "0.11"
 
 [lints]
 workspace = true
-
-[features]
-default = []
-std = []

@@ -25,13 +25,13 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Build workspace
-      run: cargo build --workspace --verbose
+      run: cargo build --workspace --exclude wasm_runtime_tests --verbose
 
     - name: Build workspace (all features)
-      run: cargo build --workspace --all-features --verbose
+      run: cargo build --workspace --exclude wasm_runtime_tests --all-features --verbose
 
     - name: Check workspace
-      run: cargo check --workspace --all-features --verbose
+      run: cargo check --workspace --exclude wasm_runtime_tests --all-features --verbose
 
     - name: Install Nightly Toolchain
       run: rustup toolchain install nightly --component rustfmt
@@ -40,12 +40,12 @@ jobs:
       run: cargo +nightly fmt --all -- --check
 
     - name: Clippy
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      run: cargo clippy --workspace --exclude wasm_runtime_tests --all-targets --all-features -- -D warnings
 
     - name: Documentation
       env:
         RUSTDOCFLAGS: "-D warnings"
-      run: cargo doc --workspace --no-deps
+      run: cargo doc --workspace --exclude wasm_runtime_tests --no-deps
 
     - name: Check no_std compatibility
       run: cargo check -p wasm_bindgen_trait --no-default-features

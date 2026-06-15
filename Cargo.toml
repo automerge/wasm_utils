@@ -3,6 +3,20 @@ resolver = "2"
 members = [
     "from_js_ref",
     "tests/wasm_error_tests",
+    "tests/wasm_runtime_tests",
+    "tests/wasm_trait_tests",
+    "wasm_bindgen_error",
+    "wasm_bindgen_trait",
+    "wasm_refgen",
+]
+
+# `wasm_runtime_tests` only builds/links for `wasm32-unknown-unknown` (it is a
+# `cdylib` using `wasm-bindgen-test`). Keep it out of the default host set so
+# `cargo build`/`cargo test` on the host don't try to link it. CI runs it
+# explicitly via `wasm-pack test`.
+default-members = [
+    "from_js_ref",
+    "tests/wasm_error_tests",
     "tests/wasm_trait_tests",
     "wasm_bindgen_error",
     "wasm_bindgen_trait",

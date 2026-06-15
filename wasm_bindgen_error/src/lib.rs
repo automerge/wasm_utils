@@ -1,11 +1,11 @@
-#![cfg_attr(not(feature = "std"), no_std)]
 //! Derive macro for converting Rust error types into named JS errors.
 //!
 //! # Motivation
 //!
 //! When exposing Rust error types through `wasm-bindgen`, you need a
 //! `From<MyError> for JsValue` impl so that `Result<T, MyError>` can cross
-//! the Wasm boundary. The typical implementation creates a [`js_sys::Error`]
+//! the Wasm boundary. The typical implementation creates a
+//! [`js_sys::Error`](https://docs.rs/js-sys/latest/js_sys/struct.Error.html)
 //! with the error's `Display` message and sets a meaningful `.name` property
 //! so that JS consumers can distinguish error types.
 //!
@@ -54,9 +54,6 @@
 //!    - `WasmHydrationError` → `"HydrationError"`
 //!    - `ConnectError` → `"ConnectError"` (no prefix to strip)
 
-extern crate alloc;
-
-use alloc::string::{String, ToString};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, LitStr};
@@ -96,13 +93,22 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         quote! { where #type_name #ty_generics: ::core::error::Error, }
     };
 
+    // The generated `From` impl lands in the *consumer* crate, which may be
+    // `#![no_std]`. A bare `err.to_string()` would require `ToString` to be in
+    // the consumer's prelude (only guaranteed under `std`). Instead, pull in
+    // `alloc` via a block-local `extern crate` — valid in both `std` and
+    // `no_std` + `alloc` crates, and hygienically named so it never collides
+    // with the consumer's own imports — then call `ToString::to_string` fully
+    // qualified so the trait need not be imported by the consumer.
     Ok(quote! {
         impl #impl_generics ::core::convert::From<#type_name #ty_generics> for ::wasm_bindgen::JsValue
         #extended_where
         {
             fn from(err: #type_name #ty_generics) -> Self {
+                extern crate alloc as _wasm_bindgen_error_alloc;
+
                 let js_err = ::js_sys::Error::new(
-                    &err.to_string(),
+                    &_wasm_bindgen_error_alloc::string::ToString::to_string(&err),
                 );
                 js_err.set_name(#js_name_str);
                 js_err.into()
@@ -629,7 +635,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn strip_wasm_prefix_properties() {
         bolero::check!()
-            .with_type::<alloc::string::String>()
+            .with_type::<String>()
             .for_each(|name| {
                 let result = strip_wasm_prefix(name);
 

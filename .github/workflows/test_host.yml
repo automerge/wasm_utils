@@ -25,13 +25,13 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Test workspace
-      run: cargo test --workspace --verbose
+      run: cargo test --workspace --exclude wasm_runtime_tests --verbose
 
     - name: Test workspace (all features)
-      run: cargo test --workspace --all-features --verbose
+      run: cargo test --workspace --exclude wasm_runtime_tests --all-features --verbose
 
     - name: Run Doc Tests
-      run: cargo test --doc --workspace
+      run: cargo test --doc --workspace --exclude wasm_runtime_tests
 
   test-nix:
     strategy:

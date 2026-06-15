@@ -98,6 +98,9 @@
         rust = command-utils.rust.${system};
         wasm = command-utils.wasm.${system};
         cmd = command-utils.cmd.${system};
+        asModule = command-utils.asModule.${system};
+
+        wasm-pack' = "${pkgs.wasm-pack}/bin/wasm-pack";
 
         command_menu = command-utils.commands.${system} [
           # Rust commands
@@ -112,6 +115,25 @@
           (wasm.build { wasm-pack = pkgs.wasm-pack; })
           (wasm.test { wasm-pack = pkgs.wasm-pack; })
           (wasm.doc { cargo = pkgs.cargo; xdg-open = pkgs.xdg-utils; })
+
+          # Project-specific runtime + TS acceptance commands
+          (asModule {
+            "wasm:runtime:node" =
+              cmd "Run runtime Wasm tests under Node"
+                "${wasm-pack'} test --node tests/wasm_runtime_tests";
+
+            "wasm:runtime:firefox" =
+              cmd "Run runtime Wasm tests in headless Firefox"
+                "${wasm-pack'} test --headless --firefox tests/wasm_runtime_tests";
+
+            "wasm:runtime:chrome" =
+              cmd "Run runtime Wasm tests in headless Chrome"
+                "${wasm-pack'} test --headless --chrome tests/wasm_runtime_tests";
+
+            "wasm:ts:check" =
+              cmd "Build TS fixture and type-check generated .d.ts with tsc"
+                "PATH=\"${pkgs.nodejs_22}/bin:${pkgs.wasm-pack}/bin:$PATH\" bash tests/wasm_ts_fixture/check-ts.sh";
+          })
         ];
 
       in rec {
