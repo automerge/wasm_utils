@@ -67,7 +67,9 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, LitStr};
+use syn::{
+    ext::IdentExt, parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, LitStr,
+};
 
 /// Derive `From<Self> for JsValue` that creates a named JS error.
 ///
@@ -87,7 +89,7 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     reject_misplaced_attrs(&input.data)?;
 
     let js_name_str = extract_js_name(&input.attrs)?
-        .unwrap_or_else(|| strip_wasm_prefix(&type_name.to_string()).to_owned());
+        .unwrap_or_else(|| strip_wasm_prefix(&type_name.unraw().to_string()).to_owned());
 
     if js_name_str.trim().is_empty() {
         return Err(syn::Error::new(
@@ -692,6 +694,19 @@ mod tests {
         assert!(
             output.contains(r#"set_name ("Wasm")"#),
             "a bare `Wasm` has no following word to strip down to.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn raw_identifier_prefix_is_dropped() {
+        let output = expand(quote! {
+            #[derive(Debug)]
+            pub struct r#WasmRawError;
+        });
+
+        assert!(
+            output.contains(r#"set_name ("RawError")"#),
+            "the `r#` prefix must not reach the JS name.\nOutput: {output}",
         );
     }
 

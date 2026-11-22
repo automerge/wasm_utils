@@ -14,6 +14,7 @@ use alloc::{
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 use syn::{
+    ext::IdentExt,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned,
@@ -166,7 +167,9 @@ pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenSt
     let trait_name = &trait_def.ident;
     let trait_vis = &trait_def.vis;
     let js_type_ident = &args.js_type;
-    let ts_interface_name = args.js_name.unwrap_or_else(|| trait_name.to_string());
+    let ts_interface_name = args
+        .js_name
+        .unwrap_or_else(|| trait_name.unraw().to_string());
 
     if let Some(err) = validate_trait(trait_def) {
         return err;
@@ -247,6 +250,47 @@ fn parse_methods(trait_def: &ItemTrait) -> Vec<MethodInfo<'_>> {
         .collect()
 }
 
+/// Reject method shapes `wasm_bindgen` can't bind: default bodies, generic
+/// parameters, and where clauses.
+fn validate_shape(mi: &MethodInfo<'_>) -> Option<TokenStream> {
+    // A default would be silently unreachable: the extern impl always
+    // delegates to JS, and `#[wasm_implements]` requires every method to
+    // be exported, so the body could never be inherited.
+    if let Some(body) = &mi.method.default {
+        return Some(
+            syn::Error::new(
+                body.span(),
+                "js_trait methods cannot have default bodies \
+                 (every method is a required method of the JS interface)",
+            )
+            .to_compile_error(),
+        );
+    }
+
+    // Reject method-level generics (wasm_bindgen can't import/export generic fns)
+    if !mi.method.sig.generics.params.is_empty() {
+        return Some(
+            syn::Error::new(
+                mi.method.sig.generics.span(),
+                "js_trait methods cannot have generic parameters \
+                 (wasm_bindgen does not support generic functions)",
+            )
+            .to_compile_error(),
+        );
+    }
+    if mi.method.sig.generics.where_clause.is_some() {
+        return Some(
+            syn::Error::new(
+                mi.method.sig.generics.where_clause.span(),
+                "js_trait methods cannot have where clauses \
+                 (wasm_bindgen does not support generic functions)",
+            )
+            .to_compile_error(),
+        );
+    }
+    None
+}
+
 /// Validate that async methods return `Result` and receivers are `&self` only.
 fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
     for mi in methods {
@@ -316,26 +360,8 @@ fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
             );
         }
 
-        // Reject method-level generics (wasm_bindgen can't import/export generic fns)
-        if !mi.method.sig.generics.params.is_empty() {
-            return Some(
-                syn::Error::new(
-                    mi.method.sig.generics.span(),
-                    "js_trait methods cannot have generic parameters \
-                     (wasm_bindgen does not support generic functions)",
-                )
-                .to_compile_error(),
-            );
-        }
-        if mi.method.sig.generics.where_clause.is_some() {
-            return Some(
-                syn::Error::new(
-                    mi.method.sig.generics.where_clause.span(),
-                    "js_trait methods cannot have where clauses \
-                     (wasm_bindgen does not support generic functions)",
-                )
-                .to_compile_error(),
-            );
+        if let Some(err) = validate_shape(mi) {
+            return Some(err);
         }
 
         // Reject non-ident arg patterns (destructuring, wildcards, etc.)
@@ -367,7 +393,7 @@ fn gen_ts_section(
     let ts_methods: Vec<String> = methods
         .iter()
         .map(|mi| {
-            let default_name = mi.method.sig.ident.to_string();
+            let default_name = mi.method.sig.ident.unraw().to_string();
             let method_name = mi.js_name.as_deref().unwrap_or(&default_name);
 
             let ts_params: Vec<String> = mi
@@ -378,7 +404,7 @@ fn gen_ts_section(
                 .filter_map(|arg| {
                     if let FnArg::Typed(pat_type) = arg {
                         let param_name = match pat_type.pat.as_ref() {
-                            syn::Pat::Ident(pi) => pi.ident.to_string(),
+                            syn::Pat::Ident(pi) => pi.ident.unraw().to_string(),
                             syn::Pat::Wild(_) | _ => "_".into(),
                         };
                         let ts_type = crate::shared::ts_types::rust_type_to_ts(&pat_type.ty);
@@ -412,7 +438,7 @@ fn gen_ts_section(
     let ts_const_name = Ident::new(
         &format!(
             "__WASM_TRAIT_TS_{}",
-            heck::ToShoutySnakeCase::to_shouty_snake_case(trait_name.to_string().as_str())
+            heck::ToShoutySnakeCase::to_shouty_snake_case(trait_name.unraw().to_string().as_str())
         ),
         trait_name.span(),
     );
@@ -526,6 +552,25 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         .collect();
     let js_name_literals: Vec<_> = js_names.iter().map(|s| quote!(#s)).collect();
 
+    // Per-method (Rust name, required JS name, error message) rows. The
+    // message is prebuilt here because only this macro knows the trait's JS
+    // names; `#[wasm_implements]` looks rows up by Rust name and panics with
+    // the message (at compile time) on a mismatch.
+    let trait_display = trait_name.unraw();
+    let method_rows: Vec<TokenStream> = methods
+        .iter()
+        .zip(&js_names)
+        .map(|(mi, js_name)| {
+            let rust_name = mi.method.sig.ident.unraw().to_string();
+            let message = format!(
+                "`{trait_display}::{rust_name}` must be exported to JS as \"{js_name}\"; \
+                 add #[wasm_bindgen(js_name = \"{js_name}\")] to it in the \
+                 #[wasm_implements({trait_display})] impl block"
+            );
+            quote!((#rust_name, #js_name, #message))
+        })
+        .collect();
+
     let trait_attrs: Vec<_> = trait_def.attrs.iter().collect();
     let trait_supertraits = &trait_def.supertraits;
     let colon_token = trait_def.colon_token;
@@ -547,6 +592,9 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         #trait_vis trait #trait_name #colon_token #trait_supertraits {
             #[doc(hidden)]
             const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
+
+            #[doc(hidden)]
+            const __JS_METHODS: &[(&str, &str, &str)] = &[#(#method_rows),*];
 
             #(#trait_methods)*
         }
@@ -827,7 +875,7 @@ mod tests {
         let trait_section = &output[trait_start..trait_end];
 
         assert!(
-            !trait_section.contains("wasm_bindgen"),
+            !trait_section.contains("# [wasm_bindgen"),
             "trait must not contain wasm_bindgen attrs.\nTrait section: {trait_section}",
         );
         Ok(())
@@ -1100,6 +1148,48 @@ mod tests {
     }
 
     #[test]
+    fn raw_identifiers_are_unrawed_in_ts_and_tags() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsKind),
+            quote! {
+                pub trait r#Kind {
+                    #[wasm_bindgen(js_name = "get")]
+                    fn js_get(&self, r#type: String) -> String;
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("export interface Kind {"),
+            "TS interface name must not contain `r#`.\nOutput: {output}",
+        );
+        assert!(
+            output.contains("get(type: string): string;"),
+            "TS parameter names must not contain `r#`.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_default_method_body() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "greet")]
+                    fn js_greet(&self) -> String { String::from("hi") }
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("cannot have default bodies"),
+            "default method bodies must produce a compile error.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
     fn error_on_method_where_clause() -> TestResult {
         let output = expand(
             quote!(js_type = JsFoo),
@@ -1300,8 +1390,12 @@ mod tests {
         // -- Trait definition --
         let tr = between(&output, "pub trait Counter", "impl Counter for JsCounter");
         assert!(
-            !tr.contains("wasm_bindgen"),
-            "trait must not contain wasm_bindgen.\nTrait: {tr}",
+            !tr.contains("# [wasm_bindgen"),
+            "trait must not contain wasm_bindgen attrs.\nTrait: {tr}",
+        );
+        assert!(
+            tr.contains(r#"("get_count" , "getCount" , "`Counter::get_count` must be exported to JS as \"getCount\""#),
+            "trait must carry a per-method JS name row with a message.\nTrait: {tr}",
         );
         assert!(
             tr.contains("fn get_count (& self) -> u32"),

@@ -2,7 +2,8 @@
 //!
 //! These exercise the duck-typed conversion path that cannot run on the host:
 //! `try_from_js_value` performs `js_sys::Reflect::has(value, "__wasm_refgen_to{Type}")`
-//! and, when present, `unchecked_into` + the injected clone method.
+//! and, when present, calls the tag through a `catch` binding, so a malformed
+//! tag yields `None` instead of a JS exception.
 
 #![allow(clippy::missing_const_for_fn, clippy::must_use_candidate)]
 
@@ -134,4 +135,61 @@ fn multi_word_class_roundtrips() {
     let js_ref: JsCommitWithBlob = original.clone().into();
     let restored = WasmCommitWithBlob::from_js_ref(&js_ref);
     assert_eq!(restored, original);
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function make_non_callable_tag() {
+    return { __wasm_refgen_toWasmCounter: 42 };
+}
+
+export function make_wrong_type_tag() {
+    return { __wasm_refgen_toWasmCounter: () => "not a counter" };
+}
+
+export function make_throwing_tag() {
+    return { __wasm_refgen_toWasmCounter: () => { throw new Error("boom"); } };
+}
+
+export function make_other_class_tag(other) {
+    return { __wasm_refgen_toWasmCounter: () => other };
+}
+"#)]
+extern "C" {
+    fn make_non_callable_tag() -> JsValue;
+    fn make_wrong_type_tag() -> JsValue;
+    fn make_throwing_tag() -> JsValue;
+    fn make_other_class_tag(other: &JsValue) -> JsValue;
+}
+
+#[wasm_bindgen_test]
+fn try_from_js_value_none_for_non_callable_tag() {
+    assert_eq!(
+        WasmCounter::try_from_js_value(&make_non_callable_tag()),
+        None
+    );
+}
+
+#[wasm_bindgen_test]
+fn try_from_js_value_none_for_tag_returning_wrong_type() {
+    assert_eq!(WasmCounter::try_from_js_value(&make_wrong_type_tag()), None);
+}
+
+#[wasm_bindgen_test]
+fn try_from_js_value_none_for_throwing_tag() {
+    assert_eq!(WasmCounter::try_from_js_value(&make_throwing_tag()), None);
+}
+
+#[wasm_bindgen_test]
+fn try_from_js_value_none_for_tag_returning_other_exported_class() {
+    let other: JsValue = WasmCommitWithBlob::new(1).into();
+    assert_eq!(
+        WasmCounter::try_from_js_value(&make_other_class_tag(&other)),
+        None
+    );
+}
+
+#[wasm_bindgen_test]
+fn try_from_js_value_none_for_null_and_undefined() {
+    assert_eq!(WasmCounter::try_from_js_value(&JsValue::NULL), None);
+    assert_eq!(WasmCounter::try_from_js_value(&JsValue::UNDEFINED), None);
 }

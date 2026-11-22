@@ -208,14 +208,16 @@
 //!
 //! `#[js_trait]` generates a hidden constant listing the expected JS method
 //! names (from `#[wasm_bindgen(js_name = "...")]` attributes). When you use
-//! `#[wasm_implements]`, it checks at compile time that the impl block
-//! exports all the required JS method names.
+//! `#[wasm_implements]`, it checks at compile time that each method is
+//! exported under the JS name the trait requires.
 //!
-//! If a method is missing or has the wrong `js_name`, you get a compile error:
+//! A missing method is a regular `E0046` from the witness impl. A method with
+//! the wrong (or no) `js_name` gets an error pointing at that method:
 //!
 //! ```text
-//! error: impl block is missing one or more JS methods required by the interface
-//!        (check js_name attrs)
+//! error[E0080]: evaluation panicked: `Calc::js_add` must be exported to JS as
+//!               "add"; add #[wasm_bindgen(js_name = "add")] to it in the
+//!               #[wasm_implements(Calc)] impl block
 //! ```
 //!
 //! > **Note:** `#[js_trait]` requires `#[wasm_bindgen(js_name = "...")]` on
