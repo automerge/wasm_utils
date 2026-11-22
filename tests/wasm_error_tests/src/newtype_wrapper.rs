@@ -17,25 +17,3 @@ pub struct HydrationError {
 #[derive(Debug, Error, WasmError)]
 #[error(transparent)]
 pub struct WasmHydrationError(#[from] HydrationError);
-
-/// The generated `From` impl compiles against real `JsValue`.
-#[test]
-fn from_impl_exists() {
-    fn assert_from<T: Into<wasm_bindgen::JsValue>>() {}
-    assert_from::<WasmHydrationError>();
-}
-
-/// The `?` operator works through the `#[from]` chain.
-#[test]
-fn question_mark_chain() {
-    fn inner() -> Result<(), HydrationError> {
-        Err(HydrationError { field: "name" })
-    }
-
-    fn outer() -> Result<(), WasmHydrationError> {
-        inner()?;
-        Ok(())
-    }
-
-    assert!(outer().is_err());
-}

@@ -12,11 +12,3 @@ use wasm_bindgen_error::WasmError;
 pub struct JsStorageError {
     reason: &'static str,
 }
-
-/// Without the override, this would be "JsStorageError" on the JS side.
-/// With it, JS sees "StorageFailure".
-#[test]
-fn override_compiles() {
-    fn assert_from<T: Into<wasm_bindgen::JsValue>>() {}
-    assert_from::<JsStorageError>();
-}

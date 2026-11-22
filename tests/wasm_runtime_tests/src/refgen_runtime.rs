@@ -53,8 +53,9 @@ impl WasmCommitWithBlob {
 #[wasm_bindgen(inline_js = r#"
 export function make_tagged_counter(real) {
     // An ordinary JS object that *quacks* like a Counter: it has the tag
-    // method, which is all `Reflect::has` checks for. The method returns the
-    // real wasm-bindgen Counter so `from_js_ref` (which calls clone) works.
+    // method, which is all `Reflect::has` checks for. Unlike the genuine tag
+    // (which returns a fresh clone), this one hands back `real` itself, so the
+    // conversion takes ownership of `real` and leaves it unusable from JS.
     return { __wasm_refgen_toWasmCounter: () => real };
 }
 
@@ -79,6 +80,18 @@ fn try_from_js_value_some_for_tagged_object() {
         "try_from_js_value must return Some for an object carrying the upcast tag",
     );
     assert_eq!(recovered.expect("checked Some above").value(), 7);
+}
+
+#[wasm_bindgen_test]
+fn try_from_js_value_leaves_genuine_instance_usable() {
+    // The genuine tag is the injected `&self` method, which returns a fresh
+    // clone; only that clone is consumed, never the caller's object.
+    let original = WasmCounter::new(3);
+    let js: JsValue = original.into();
+
+    let first = WasmCounter::try_from_js_value(&js).expect("genuine instance converts");
+    let second = WasmCounter::try_from_js_value(&js).expect("still usable after conversion");
+    assert_eq!((first.value(), second.value()), (3, 3));
 }
 
 #[wasm_bindgen_test]

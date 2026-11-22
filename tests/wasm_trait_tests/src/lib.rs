@@ -5,6 +5,7 @@
 // the macros work correctly.
 
 mod async_trait;
+mod compile_fail;
 mod doc_examples;
 mod implements;
 mod js_name_override;

@@ -102,13 +102,11 @@ pub fn process(js_value: &JsValue) -> Result<(), MyError> {
 }
 ```
 
-This performs a duck-type check under the hood: it verifies the JS object
-has the expected upcast method via `Reflect::has`, then converts through
-the generated reference type.
+This performs a duck-type check under the hood: it calls the JS object's
+upcast method and returns `None` if the method is missing, throws, or returns
+something other than a `WasmFoo`.
 
-<!-- Not a `[!WARNING]` callout: this README is `include_str!`ed into rustdoc,
-     which parses `[!WARNING]` as a broken intra-doc link (denied in CI). -->
-> **Warning:**
+> [!WARNING]
 > Do _not_ use `dyn_into::<JsFoo>()` or `dyn_ref::<JsFoo>()`. These rely on
 > `instanceof`, which does not work with `wasm_refgen`-generated types. The
 > `instanceof` check targets the Rust identifier name (e.g., `JsFoo`) rather

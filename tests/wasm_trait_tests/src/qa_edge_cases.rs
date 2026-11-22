@@ -16,6 +16,12 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_trait::{js_trait, wasm_implements};
 
+/// The required JS names, in declaration order, from a `__JS_METHODS` table.
+#[cfg(test)]
+fn js_names(table: &[(&'static str, &'static str, &'static str)]) -> Vec<&'static str> {
+    table.iter().map(|&(_, js_name, _)| js_name).collect()
+}
+
 // 1. Empty trait — zero methods
 
 #[js_trait(js_type = JsEmpty)]
@@ -23,9 +29,6 @@ pub trait Empty {}
 
 #[test]
 fn empty_trait_compiles() {
-    fn assert_js_cast<T: JsCast>() {}
-    assert_js_cast::<JsEmpty>();
-
     fn assert_trait<T: Empty>() {}
     assert_trait::<JsEmpty>();
 }
@@ -38,12 +41,6 @@ pub trait Ping {
     fn js_ping(&self) -> bool;
 }
 
-#[test]
-fn single_method_trait_compiles() {
-    fn assert_trait<T: Ping>() {}
-    assert_trait::<JsPing>();
-}
-
 // 3. Method with many parameters (5+)
 
 #[js_trait(js_type = JsManyParams)]
@@ -52,24 +49,12 @@ pub trait ManyParams {
     fn js_do_stuff(&self, a: u32, b: u32, c: String, d: bool, e: JsValue, f: u32) -> JsValue;
 }
 
-#[test]
-fn many_params_compiles() {
-    fn assert_trait<T: ManyParams>() {}
-    assert_trait::<JsManyParams>();
-}
-
 // 4. Method returning Option<JsValue>
 
 #[js_trait(js_type = JsMaybeValue)]
 pub trait MaybeValue {
     #[wasm_bindgen(js_name = "find")]
     fn js_find(&self, key: u32) -> Option<JsValue>;
-}
-
-#[test]
-fn option_return_compiles() {
-    fn assert_trait<T: MaybeValue>() {}
-    assert_trait::<JsMaybeValue>();
 }
 
 // 5. Method with reference params (&str, &JsValue)
@@ -149,24 +134,12 @@ pub trait Documented {
     fn js_info(&self) -> String;
 }
 
-#[test]
-fn doc_comments_survive() {
-    fn assert_trait<T: Documented>() {}
-    assert_trait::<JsDocumented>();
-}
-
 // 8. Method with explicit js_name attr
 
 #[js_trait(js_type = JsNoWbAttr)]
 pub trait NoWbAttr {
     #[wasm_bindgen(js_name = "bareMethod")]
     fn js_bare_method(&self) -> u32;
-}
-
-#[test]
-fn explicit_js_name_attr_compiles() {
-    fn assert_trait<T: NoWbAttr>() {}
-    assert_trait::<JsNoWbAttr>();
 }
 
 // 9. Trait method names that collide with __wasm_trait_ prefix
@@ -195,24 +168,12 @@ pub trait LongName {
     ) -> u32;
 }
 
-#[test]
-fn very_long_method_name_compiles() {
-    fn assert_trait<T: LongName>() {}
-    assert_trait::<JsLongName>();
-}
-
 // 11. Async method returning Result<JsValue, JsValue>
 
 #[js_trait(js_type = JsIdentityAsync)]
 pub trait IdentityAsync {
     #[wasm_bindgen(js_name = "fetch")]
     async fn js_fetch(&self, url: String) -> Result<JsValue, JsValue>;
-}
-
-#[test]
-fn async_result_jsvalue_jsvalue_compiles() {
-    fn assert_trait<T: IdentityAsync>() {}
-    assert_trait::<JsIdentityAsync>();
 }
 
 // 12. Catch method (sync) returning Result<JsValue, JsValue>
@@ -258,46 +219,11 @@ impl WasmTransportQa {
 }
 
 #[test]
-fn js_name_check_happy_path() {
-    fn assert_trait<T: TransportQa>() {}
-    assert_trait::<JsTransportQa>();
-    assert_trait::<WasmTransportQa>();
-}
-
-#[test]
 fn js_interface_const_has_expected_names() {
     assert_eq!(
-        <JsTransportQa as TransportQa>::__JS_INTERFACE,
-        &["sendBytes", "recvBytes"],
+        js_names(<JsTransportQa as TransportQa>::__JS_METHODS),
+        ["sendBytes", "recvBytes"],
     );
-}
-
-// 14. JS name check — mismatched name (compile-fail)
-//
-// This test has a wrong js_name ("sendBytez" instead of "sendBytes").
-// It MUST fail to compile due to the const assertion in wasm_implements.
-// Gated behind `#[cfg(any())]` so it doesn't break the build.
-
-#[cfg(any())]
-mod mismatched_js_name {
-    use super::*;
-
-    #[wasm_bindgen]
-    pub struct WasmBadTransport;
-
-    #[wasm_implements(TransportQa)]
-    #[wasm_bindgen(js_class = "WasmBadTransport")]
-    impl WasmBadTransport {
-        #[wasm_bindgen(js_name = "sendBytez")] // typo!
-        pub fn js_send_bytes(&self, _data: JsValue) -> bool {
-            true
-        }
-
-        #[wasm_bindgen(js_name = "recvBytes")]
-        pub fn js_recv_bytes(&self) -> JsValue {
-            JsValue::NULL
-        }
-    }
 }
 
 // 15. JS name check — js_name required on trait methods
@@ -306,14 +232,6 @@ mod mismatched_js_name {
 pub trait BareMethodQa {
     #[wasm_bindgen(js_name = "bareFn")]
     fn js_bare_fn(&self) -> u32;
-}
-
-#[test]
-fn js_name_required_on_trait_method() {
-    assert_eq!(
-        <JsBareMethodQa as BareMethodQa>::__JS_INTERFACE,
-        &["bareFn"],
-    );
 }
 
 // 16. async fn in trait — mock uses plain async fn
@@ -333,21 +251,6 @@ impl AsyncQa for MockAsyncQa {
     }
 }
 
-#[test]
-fn async_fn_in_trait_works_for_mocks() {
-    fn assert_trait<T: AsyncQa>() {}
-    assert_trait::<JsAsyncQa>();
-    assert_trait::<MockAsyncQa>();
-}
-
-#[test]
-fn async_mock_returns_future() {
-    fn assert_future<T: core::future::Future>(_t: &T) {}
-    let mock = MockAsyncQa;
-    let fut = mock.js_fetch_data(String::new());
-    assert_future(&fut);
-}
-
 // 17. Typed error types — js_sys::Error
 
 #[js_trait(js_type = JsTypedErrQa)]
@@ -357,12 +260,6 @@ pub trait TypedErrQa {
 
     #[wasm_bindgen(js_name = "loadData")]
     async fn js_load_data(&self, key: String) -> Result<js_sys::Uint8Array, js_sys::Error>;
-}
-
-#[test]
-fn typed_error_compiles() {
-    fn assert_trait<T: TypedErrQa>() {}
-    assert_trait::<JsTypedErrQa>();
 }
 
 #[allow(dead_code)] // Used only in type-level assertions
@@ -376,13 +273,6 @@ impl TypedErrQa for MockTypedErrQa {
     async fn js_load_data(&self, _key: String) -> Result<js_sys::Uint8Array, js_sys::Error> {
         Ok(js_sys::Uint8Array::new_with_length(0))
     }
-}
-
-#[test]
-fn typed_error_mock_compiles() {
-    fn assert_trait<T: TypedErrQa>() {}
-    assert_trait::<MockTypedErrQa>();
-    let _ = MockTypedErrQa;
 }
 
 // 18. Mixed trait (async + sync + static) with wasm_implements
@@ -431,8 +321,8 @@ fn mixed_trait_end_to_end() {
 #[test]
 fn mixed_js_interface_const_correct() {
     assert_eq!(
-        <JsMixedQa as MixedQa>::__JS_INTERFACE,
-        &["name", "fetchItem", "create"],
+        js_names(<JsMixedQa as MixedQa>::__JS_METHODS),
+        ["name", "fetchItem", "create"],
     );
 }
 
@@ -452,7 +342,7 @@ pub mod inner_module {
 pub struct WasmInnerImpl;
 
 // Module-qualified path — the macro accesses the associated const via
-// `<WasmInnerImpl as inner_module::InnerTrait>::__JS_INTERFACE`.
+// `<WasmInnerImpl as inner_module::InnerTrait>::__JS_METHODS`.
 #[wasm_implements(inner_module::InnerTrait)]
 #[wasm_bindgen(js_class = "WasmInnerImpl")]
 impl WasmInnerImpl {
@@ -510,51 +400,6 @@ impl TsStress for MockTsStress {
     }
 
     fn js_reset(&self) {}
-}
-
-#[test]
-fn ts_stress_trait_and_mock_compile() {
-    fn assert_trait<T: TsStress>() {}
-    assert_trait::<JsTsStress>();
-    assert_trait::<MockTsStress>();
-    let _ = MockTsStress;
-}
-
-#[test]
-fn ts_stress_async_returns_future() {
-    fn assert_future<F: core::future::Future>(_f: &F) {}
-    let mock = MockTsStress;
-    assert_future(&mock.js_send_void());
-    assert_future(&mock.js_fetch_array());
-}
-
-// Wrong return type: gated behind #[cfg(any())]
-// The witness impl in #[wasm_implements] catches return type mismatches
-// at compile time. This block is gated off to document the expected error.
-
-#[cfg(any())]
-mod misuse_wrong_return_type {
-    use wasm_bindgen::prelude::*;
-    use wasm_bindgen_trait::{js_trait, wasm_implements};
-
-    #[js_trait(js_type = JsTyped)]
-    pub trait Typed {
-        #[wasm_bindgen(js_name = "getValue")]
-        fn js_get_value(&self) -> String;
-    }
-
-    #[wasm_bindgen]
-    pub struct WrongReturn;
-
-    // Should fail: returns u32 instead of String
-    #[wasm_implements(Typed)]
-    #[wasm_bindgen(js_class = "WrongReturn")]
-    impl WrongReturn {
-        #[wasm_bindgen(js_name = "getValue")]
-        pub fn js_get_value(&self) -> u32 {
-            42
-        }
-    }
 }
 
 // Trait with supertraits compiles

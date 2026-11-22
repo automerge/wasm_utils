@@ -37,13 +37,6 @@ impl WasmMemoryKvStore {
     }
 }
 
-/// The Rust struct satisfies the trait via the hidden witness.
-#[test]
-fn rust_export_satisfies_trait() {
-    fn assert_kv_store<T: KvStore>() {}
-    assert_kv_store::<WasmMemoryKvStore>();
-}
-
 /// Both the extern type and the Rust struct implement the trait.
 #[test]
 fn both_types_implement_trait() {
@@ -52,12 +45,53 @@ fn both_types_implement_trait() {
     assert_kv_store::<WasmMemoryKvStore>();
 }
 
-/// The trait can be used generically over both types.
-#[test]
-fn generic_over_both_types() {
-    fn use_store<T: KvStore>(s: &T) -> bool {
-        s.js_delete(JsValue::NULL)
+// Bare-identifier `js_name` (no quotes) is valid wasm-bindgen syntax on both
+// the trait and the impl side, and must satisfy the conformance check.
+#[js_trait(js_type = JsBareCounter)]
+pub trait BareCounter {
+    #[wasm_bindgen(js_name = getCount)]
+    fn get_count(&self) -> u32;
+}
+
+#[wasm_bindgen]
+pub struct WasmBareCounter;
+
+#[wasm_implements(BareCounter)]
+#[wasm_bindgen(js_class = "WasmBareCounter")]
+impl WasmBareCounter {
+    #[wasm_bindgen(js_name = getCount)]
+    pub fn get_count(&self) -> u32 {
+        0
     }
-    let _ = use_store::<JsKvStore>;
-    let _ = use_store::<WasmMemoryKvStore>;
+}
+
+#[test]
+fn bare_identifier_js_name_conforms() {
+    fn assert_trait<T: BareCounter>() {}
+    assert_trait::<WasmBareCounter>();
+}
+
+// The witness for an async method with a borrowed parameter must compile too.
+#[js_trait(js_type = JsFinder)]
+pub trait Finder {
+    #[wasm_bindgen(js_name = "find")]
+    async fn js_find(&self, key: &str) -> Result<JsValue, JsValue>;
+}
+
+#[wasm_bindgen]
+pub struct WasmFinder;
+
+#[wasm_implements(Finder)]
+#[wasm_bindgen(js_class = "WasmFinder")]
+impl WasmFinder {
+    #[wasm_bindgen(js_name = "find")]
+    pub async fn js_find(&self, key: &str) -> Result<JsValue, JsValue> {
+        Ok(JsValue::from_str(key))
+    }
+}
+
+#[test]
+fn async_borrowed_param_conforms() {
+    fn assert_trait<T: Finder>() {}
+    assert_trait::<WasmFinder>();
 }

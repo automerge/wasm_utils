@@ -232,6 +232,7 @@ mod tests {
     use super::*;
     use alloc::{
         boxed::Box,
+        format,
         string::{String, ToString},
     };
     use quote::quote;
@@ -333,8 +334,11 @@ mod tests {
             .split_once("const _ : () =")
             .ok_or("must have witness")?
             .1;
-        assert!(witness_section.contains("Future"));
-        assert!(!witness_section.contains("async"));
+        assert!(
+            witness_section.contains("-> impl :: core :: future :: Future < Output = u32 > {"),
+            "async methods become RPITIT in the witness.\nWitness: {witness_section}",
+        );
+        assert!(!witness_section.contains("async fn"));
         Ok(())
     }
 
@@ -350,11 +354,18 @@ mod tests {
             },
         )?;
 
-        let impl_pos = output
-            .find("impl WasmFoo")
-            .ok_or("must have original impl")?;
-        let witness_pos = output.find("const _ : () =").ok_or("must have witness")?;
-        assert!(impl_pos < witness_pos);
+        let (original, _witness) = output
+            .split_once("const _ : () =")
+            .ok_or("must have witness")?;
+        assert!(original.starts_with("impl WasmFoo"));
+        assert!(
+            original.contains(r#"# [wasm_bindgen (js_name = "put")] pub fn js_put"#),
+            "the original method and its attrs must be kept.\nOriginal: {original}",
+        );
+        assert!(
+            original.contains("pub fn __wasm_impl_transport (& self) -> bool { true }"),
+            "the tag method must be injected into the original impl.\nOriginal: {original}",
+        );
         Ok(())
     }
 
@@ -411,7 +422,7 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains("compile_error"));
+        assert!(output.contains("#[wasm_implements] must be used on an inherent impl"));
         Ok(())
     }
 
@@ -472,9 +483,37 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains(r#""save""#));
-        assert!(output.contains(r#""load""#));
-        assert!(output.contains(r#""delete""#));
+        for (rust_name, js_name) in [
+            ("js_save", "save"),
+            ("js_load", "load"),
+            ("js_delete", "delete"),
+        ] {
+            let check =
+                format!(r#"__wasm_trait_check_js_name (__METHODS , "{rust_name}" , "{js_name}")"#);
+            assert!(
+                output.contains(&check),
+                "missing {check}.\nOutput: {output}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn js_name_check_reads_bare_identifier_js_name() -> TestResult {
+        let output = expand(
+            quote!(Counter),
+            quote! {
+                impl WasmFoo {
+                    #[wasm_bindgen(js_name = getCount)]
+                    pub fn get_count(&self) -> u32 { 0 }
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains(r#"__wasm_trait_check_js_name (__METHODS , "get_count" , "getCount")"#),
+            "bare-identifier js_name must be checked as written.\nOutput: {output}",
+        );
         Ok(())
     }
 
@@ -489,7 +528,7 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains(r#""js_send_bytes""#));
+        assert!(output.contains(r#"(__METHODS , "js_send_bytes" , "js_send_bytes")"#));
         Ok(())
     }
 
@@ -512,6 +551,24 @@ mod tests {
             output.matches("const { __wasm_trait_check_js_name").count(),
             2,
             "each exported method gets its own spanned check.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_tag_method_name_collision() -> TestResult {
+        let output = expand(
+            quote!(Transport),
+            quote! {
+                impl WasmFoo {
+                    pub fn __wasm_impl_transport(&self) -> bool { false }
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("impl block already contains a method named `__wasm_impl_transport`"),
+            "Output: {output}",
         );
         Ok(())
     }

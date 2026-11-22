@@ -32,3 +32,6 @@ tests/report
 node_modules
 dist
 CLAUDE.md
+
+# cargo-mutants output
+mutants.out*/

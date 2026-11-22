@@ -30,12 +30,6 @@ impl From<ManualError> for JsValue {
     }
 }
 
-#[test]
-fn manual_from_impl_compiles() {
-    fn assert_into_jsvalue<T: Into<JsValue>>() {}
-    assert_into_jsvalue::<ManualError>();
-}
-
 // Doc example: "Usage"
 // The derive macro in action.
 
@@ -61,18 +55,4 @@ fn derive_usage_compiles() {
     fn assert_into_jsvalue<T: Into<JsValue>>() {}
     assert_into_jsvalue::<WasmHydrationError>();
     assert_into_jsvalue::<WasmIoError>();
-}
-
-#[test]
-fn question_mark_chains() {
-    fn inner() -> Result<(), HydrationError> {
-        Err(HydrationError)
-    }
-
-    fn outer() -> Result<(), WasmHydrationError> {
-        inner()?;
-        Ok(())
-    }
-
-    assert!(outer().is_err());
 }

@@ -1,5 +1,51 @@
+//! Use Rust-exported `wasm-bindgen` structs where `wasm-bindgen` only accepts
+//! JS-imported types: in `Vec`s, generics, and `extern "C"` signatures.
+//!
+//! `#[wasm_refgen(js_ref = JsFoo)]` on a struct's `#[wasm_bindgen]` impl block
+//! generates a JS-imported reference type `JsFoo` for it, plus conversions
+//! back to the Rust type through [`from_js_ref::FromJsRef`]. The conversion is
+//! duck-typed: it calls an injected, uniquely named upcast method that returns
+//! a clone of the struct, so the struct should be cheap to clone.
+//!
+//! ```ignore
+//! use wasm_bindgen::prelude::*;
+//! use wasm_refgen::wasm_refgen;
+//!
+//! #[derive(Clone)]
+//! #[wasm_bindgen(js_name = "Foo")]
+//! pub struct WasmFoo {
+//!     id: u32,
+//! }
+//!
+//! #[wasm_refgen(js_ref = JsFoo)]
+//! #[wasm_bindgen(js_class = "Foo")]
+//! impl WasmFoo {
+//!     // ... your normal methods
+//! }
+//!
+//! #[wasm_bindgen(js_name = doMany)]
+//! pub fn do_many(foos: Vec<JsFoo>) {
+//!     let foos: Vec<WasmFoo> = foos.iter().map(Into::into).collect();
+//! }
+//! ```
+//!
+//! # Requirements
+//!
+//! - `#[wasm_refgen]` goes _above_ `#[wasm_bindgen(js_class = "...")]`.
+//! - The struct must implement `Clone`.
+//! - Use it on exactly one impl block per type.
+//!
+//! # Converting from `JsValue`
+//!
+//! Use `FromJsRef::try_from_js_value`, which returns `None` unless the value
+//! carries a working upcast method. Do _not_ use `dyn_into::<JsFoo>()` or
+//! `dyn_ref::<JsFoo>()`: they rely on `instanceof`, which targets the Rust
+//! identifier rather than the JS class, so they always fail.
+//!
+//! See the [README](https://github.com/automerge/wasm_utils/tree/main/wasm_refgen)
+//! for more detail.
+
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
 
 extern crate alloc;
 
@@ -195,7 +241,7 @@ impl Parse for Args {
             } else {
                 return Err(syn::Error::new(
                     key.span(),
-                    "unknown arg; expected `js_ref` or `ts`",
+                    "unknown arg; expected `js_ref`",
                 ));
             }
 
@@ -286,23 +332,6 @@ mod tests {
         wasm_refgen_impl(args, impl_block).to_string()
     }
 
-    #[test]
-    fn extern_type_has_typescript_type() {
-        let output = expand(
-            quote!(js_ref = JsFoo),
-            quote! {
-                #[wasm_bindgen(js_class = "Foo")]
-                impl WasmFoo {}
-            },
-        );
-
-        assert!(
-            output.contains("typescript_type = Foo"),
-            "extern type declaration must include `typescript_type`.\n\
-             Output: {output}",
-        );
-    }
-
     /// The extern type must NOT have `js_name` on its type declaration.
     /// Adding `js_name` causes a JS identifier collision with the exported
     /// struct's class, leading wasm-bindgen to rename one to `Foo2`.
@@ -341,36 +370,6 @@ mod tests {
             "extern type declaration must NOT include `js_name` — \
              it collides with the exported struct's JS class name.\n\
              Type attr region: {type_attr}",
-        );
-    }
-
-    #[test]
-    fn extern_type_omits_js_name_multi_word() {
-        let output = expand(
-            quote!(js_ref = JsCommitWithBlob),
-            quote! {
-                #[wasm_bindgen(js_class = "CommitWithBlob")]
-                impl WasmCommitWithBlob {}
-            },
-        );
-
-        let type_attr_region = output
-            .find("pub type JsCommitWithBlob")
-            .expect("must generate `pub type JsCommitWithBlob`");
-        let before_type = &output[..type_attr_region];
-        let last_attr = before_type
-            .rfind("wasm_bindgen")
-            .expect("must have wasm_bindgen attr");
-        let type_attr = &output[last_attr..type_attr_region];
-
-        assert!(
-            !type_attr.contains("js_name"),
-            "extern type must NOT have `js_name` to avoid collision with \
-             the exported struct's JS class.\nType attr region: {type_attr}",
-        );
-        assert!(
-            output.contains("typescript_type = CommitWithBlob"),
-            "extern type must have typescript_type.\nOutput: {output}",
         );
     }
 
@@ -447,7 +446,7 @@ mod tests {
         );
 
         assert!(
-            output.contains("compile_error"),
+            output.contains("must be used on an inherent impl, not a trait impl"),
             "trait impl must produce a compile error.\nOutput: {output}",
         );
     }
@@ -462,7 +461,7 @@ mod tests {
         );
 
         assert!(
-            output.contains("compile_error"),
+            output.contains("requires #[wasm_bindgen(js_class ="),
             "missing js_class must produce a compile error.\nOutput: {output}",
         );
     }
@@ -489,8 +488,14 @@ mod tests {
             "try_from_js_value must use Reflect::has for duck-type check.\nOutput: {output}",
         );
         assert!(
-            output.contains("__wasm_refgen_toWasmFoo"),
-            "try_from_js_value must check for the upcast tag method.\nOutput: {output}",
+            output.contains(r#"JsValue :: from_str ("__wasm_refgen_toWasmFoo")"#),
+            "try_from_js_value must look up the upcast tag.\nOutput: {output}",
+        );
+        assert!(
+            output
+                .contains(r#"wasm_bindgen (method , catch , js_name = "__wasm_refgen_toWasmFoo")"#)
+                && output.contains("js_ref . __wasm_refgen_try_to_wasm_foo () . ok ()"),
+            "try_from_js_value must call the tag through the `catch` binding.\nOutput: {output}",
         );
     }
 
@@ -505,33 +510,12 @@ mod tests {
         );
 
         assert!(
-            output.contains("__wasm_refgen_toWasmCommitWithBlob"),
-            "try_from_js_value must use the correct upcast tag for multi-word names.\nOutput: {output}",
+            output.contains(r#"from_str ("__wasm_refgen_toWasmCommitWithBlob")"#),
+            "the JS tag keeps the type's CamelCase name.\nOutput: {output}",
         );
         assert!(
-            output.contains("Reflect :: has") || output.contains("Reflect::has"),
-            "must use Reflect::has.\nOutput: {output}",
-        );
-    }
-
-    // Error quality: non-Clone type
-    // The macro generates `self.clone()`, so missing Clone surfaces as
-    // a rustc error, not a macro error. This test documents that the
-    // macro itself doesn't reject it — the error comes later.
-    #[test]
-    fn non_clone_type_still_expands() {
-        let output = expand(
-            quote!(js_ref = JsNonClone),
-            quote! {
-                #[wasm_bindgen(js_class = "NonClone")]
-                impl NonClone {}
-            },
-        );
-
-        // The macro expands without error (clone() call is in generated code)
-        assert!(
-            output.contains("clone"),
-            "macro must generate clone() call that will fail at type-check.\nOutput: {output}",
+            output.contains("fn __wasm_refgen_to_wasm_commit_with_blob"),
+            "the Rust method name is the snake_case type name.\nOutput: {output}",
         );
     }
 
@@ -549,44 +533,98 @@ mod tests {
         );
 
         assert!(
-            output.contains("JsGeneric"),
-            "must emit the JsGeneric reference type.\nOutput: {output}",
+            output.contains("FromJsRef for WasmContainer {")
+                && output.contains("From < WasmContainer > for JsGeneric"),
+            "generic arguments are dropped from the self type.\nOutput: {output}",
         );
     }
 
-    // `#[wasm_refgen]` is once-per-type: every expansion for `WasmFoo` emits the
-    // same `FromJsRef` impl and upcast method regardless of `js_ref`, so two
-    // uses conflict (E0119/E0592). The README documents this restriction.
+    fn parse_err(attr: proc_macro2::TokenStream) -> String {
+        syn::parse2::<Args>(attr)
+            .err()
+            .expect("expected argument parsing to fail")
+            .to_string()
+    }
+
     #[test]
-    fn expansions_for_same_type_emit_identical_type_level_items() {
-        let output1 = expand(
-            quote!(js_ref = JsFooV1),
+    fn error_on_unknown_arg() {
+        let err = parse_err(quote!(js_reff = JsFoo));
+        assert_eq!(err, "unknown arg; expected `js_ref`");
+    }
+
+    #[test]
+    fn error_on_missing_js_ref() {
+        let err = parse_err(quote!());
+        assert!(err.contains("missing required arg: js_ref"), "Error: {err}");
+    }
+
+    #[test]
+    fn error_on_non_path_self_type() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
             quote! {
                 #[wasm_bindgen(js_class = "Foo")]
-                impl WasmFoo {
-                    pub fn method_a(&self) {}
-                }
+                impl (u8, u8) {}
             },
         );
-        let output2 = expand(
-            quote!(js_ref = JsFooV2),
+
+        assert!(
+            output.contains("expected a simple type name"),
+            "Output: {output}"
+        );
+    }
+
+    #[test]
+    fn bare_identifier_js_class_is_accepted() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
+            quote! {
+                #[wasm_bindgen(js_class = Foo)]
+                impl WasmFoo {}
+            },
+        );
+
+        assert!(
+            output.contains("typescript_type = Foo"),
+            "`js_class = Foo` must work like `js_class = \"Foo\"`.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn error_on_js_class_that_is_not_an_identifier() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
+            quote! {
+                #[wasm_bindgen(js_class = "not-an-ident")]
+                impl WasmFoo {}
+            },
+        );
+
+        assert!(output.contains("compile_error"), "Output: {output}");
+        assert!(!output.contains("FromJsRef"), "Output: {output}");
+    }
+
+    #[test]
+    fn existing_upcast_method_is_not_duplicated() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
             quote! {
                 #[wasm_bindgen(js_class = "Foo")]
                 impl WasmFoo {
-                    pub fn method_b(&self) {}
+                    pub fn __wasm_refgen_to_wasm_foo(&self) -> Self {
+                        custom_clone(self)
+                    }
                 }
             },
         );
 
-        for output in [&output1, &output2] {
-            assert!(
-                output.contains("impl :: from_js_ref :: FromJsRef for WasmFoo"),
-                "every expansion implements FromJsRef for the type.\nOutput: {output}",
-            );
-            assert!(
-                output.contains("fn __wasm_refgen_to_wasm_foo"),
-                "every expansion injects the same upcast method.\nOutput: {output}",
-            );
-        }
+        assert_eq!(
+            output
+                .matches("fn __wasm_refgen_to_wasm_foo (& self)")
+                .count(),
+            1,
+            "a user-written upcast method must be kept, not duplicated.\nOutput: {output}",
+        );
+        assert!(output.contains("custom_clone (self)"), "Output: {output}");
     }
 }

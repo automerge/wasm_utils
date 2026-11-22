@@ -1,0 +1,15 @@
+# cargo-mutants configuration. Mutation testing runs in CI only
+# (.github/workflows/mutants.yml): incrementally on PRs, fully on a schedule.
+
+# Only mutate the published crates; the `tests/` crates are test code.
+examine_globs = [
+  "from_js_ref/src/**/*.rs",
+  "wasm_bindgen_error/src/**/*.rs",
+  "wasm_bindgen_trait/src/**/*.rs",
+  "wasm_refgen/src/**/*.rs",
+]
+
+# Most coverage for the macros lives in the integration crates
+# (`tests/wasm_*_tests`), which compile real expansions. Run the whole
+# workspace's tests for every mutant, not just the mutated package's.
+test_workspace = true

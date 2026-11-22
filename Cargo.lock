@@ -720,6 +720,7 @@ dependencies = [
 name = "wasm_bindgen_trait"
 version = "0.1.0"
 dependencies = [
+ "bolero",
  "heck",
  "proc-macro2",
  "quote",

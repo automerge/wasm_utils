@@ -54,13 +54,6 @@ async fn use_storage(s: &impl Storage) {
         .expect("save failed");
 }
 
-#[test]
-fn trait_usable_as_bound() {
-    fn assert_bound<T: Storage>() {}
-    assert_bound::<JsStorage>();
-    // accept_storage and use_storage compile — that's the test
-}
-
 // Doc example: "Quick Start §3 — wasm_implements"
 
 #[wasm_bindgen]
@@ -88,8 +81,7 @@ impl WasmMemoryStorage {
 #[test]
 fn wasm_implements_conformance_compiles() {
     fn assert_storage<T: Storage>() {}
-    assert_storage::<JsStorage>();
-    // WasmMemoryStorage compiles with #[wasm_implements] — that's the test
+    assert_storage::<WasmMemoryStorage>();
 }
 
 // Doc example: "Bridging to Domain Traits"
@@ -130,12 +122,6 @@ impl DocumentStore for JsStorage {
     }
 }
 
-#[test]
-fn domain_bridge_compiles() {
-    fn assert_doc_store<T: DocumentStore>() {}
-    assert_doc_store::<JsStorage>();
-}
-
 // Doc example: "Async Methods — impl styles"
 
 #[allow(dead_code)]
@@ -159,12 +145,6 @@ impl Storage for MyAsyncImpl {
     }
 }
 
-#[test]
-fn both_async_impl_styles_compile() {
-    fn assert_storage<T: Storage>() {}
-    assert_storage::<MyAsyncImpl>();
-}
-
 // Doc example: "Error Types"
 
 #[js_trait(js_type = JsApi)]
@@ -177,13 +157,4 @@ pub trait Api {
 
     #[wasm_bindgen(js_name = "send")]
     async fn js_send(&self, data: js_sys::Uint8Array) -> Result<(), js_sys::Error>;
-}
-
-#[test]
-fn typed_error_api_compiles() {
-    fn assert_api<T: Api>() {}
-    fn assert_js_cast<T: wasm_bindgen::JsCast>() {}
-
-    assert_api::<JsApi>();
-    assert_js_cast::<JsApi>();
 }

@@ -1,7 +1,7 @@
 //! Utilities for manipulating method signatures.
 //!
 //! Handles stripping `async`, `pub`, and transforming
-//! `async fn foo() -> T` into `fn foo() -> impl Future<Output = T> + '_`.
+//! `async fn foo() -> T` into `fn foo() -> impl Future<Output = T>`.
 
 use alloc::{boxed::Box, vec::Vec};
 use proc_macro2::TokenStream;
@@ -32,7 +32,12 @@ pub(crate) fn has_self_receiver(sig: &Signature) -> bool {
 /// Transform an async method signature into RPITIT form.
 ///
 /// `async fn foo(&self, x: T) -> R` becomes
-/// `fn foo(&self, x: T) -> impl ::core::future::Future<Output = R> + '_`
+/// `fn foo(&self, x: T) -> impl ::core::future::Future<Output = R>`
+///
+/// No `+ '_` bound: return-position `impl Trait` in a trait impl already
+/// captures every lifetime in scope, including borrowed parameters like
+/// `key: &str`. A `'_` bound would tie the future to `&self` alone and reject
+/// bodies that capture other borrows.
 ///
 /// Non-async signatures are returned unchanged.
 pub(crate) fn to_rpitit_signature(sig: &Signature) -> Signature {
@@ -51,7 +56,7 @@ pub(crate) fn to_rpitit_signature(sig: &Signature) -> Signature {
     sig.output = ReturnType::Type(
         syn::token::RArrow::default(),
         Box::new(syn::parse_quote! {
-            impl ::core::future::Future<Output = #output_ty> + '_
+            impl ::core::future::Future<Output = #output_ty>
         }),
     );
 

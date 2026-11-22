@@ -78,11 +78,14 @@ async fn async_resolution_maps_to_ok() {
 #[wasm_bindgen_test]
 async fn async_rejection_maps_to_err() {
     let store = make_async_store();
-    let result = store.js_failing().await;
-    assert!(
-        result.is_err(),
-        "a rejected promise must map to Err(JsValue)",
-    );
+    let err = store
+        .js_failing()
+        .await
+        .expect_err("a rejected promise must map to Err(JsValue)");
+    let err: js_sys::Error = err
+        .dyn_into()
+        .expect("the rejection value is passed through");
+    assert_eq!(err.message(), "boom");
 }
 
 #[wasm_bindgen]
@@ -146,17 +149,13 @@ fn rust_export_implements_trait_at_runtime() {
 #[wasm_bindgen_test]
 fn rust_export_carries_runtime_tag() {
     let js: JsValue = WasmRustCalculator::new().into();
-    let tag = Reflect::get(&js, &JsValue::from_str("__wasm_impl_Calculator"))
-        .expect("Reflect::get on an exported object must not throw");
-    assert!(
-        tag.is_function(),
-        "`#[wasm_implements(Calculator)]` must inject a callable `__wasm_impl_Calculator` tag",
-    );
-
-    let plain = make_calculator();
-    assert!(
-        !Reflect::has(&plain, &JsValue::from_str("__wasm_impl_Calculator"))
-            .expect("Reflect::has on an object must not throw"),
-        "a plain JS object must not carry the tag",
+    let tag: js_sys::Function = Reflect::get(&js, &JsValue::from_str("__wasm_impl_Calculator"))
+        .expect("Reflect::get on an exported object must not throw")
+        .dyn_into()
+        .expect("`#[wasm_implements(Calculator)]` must inject a callable tag");
+    assert_eq!(
+        tag.call0(&js).expect("the tag must not throw"),
+        JsValue::TRUE,
+        "the tag reports conformance by returning true",
     );
 }

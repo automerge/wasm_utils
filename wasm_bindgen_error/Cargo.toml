@@ -26,3 +26,7 @@ syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true
+
+[features]
+default = []
+std = []

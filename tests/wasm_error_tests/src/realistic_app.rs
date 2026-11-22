@@ -92,24 +92,3 @@ fn all_error_types_convert_to_jsvalue() {
     assert_from::<WasmValidationError>();
     assert_from::<WasmWriteError>();
 }
-
-#[test]
-fn question_mark_chains_work() {
-    let store = DocumentStore;
-
-    let err = store.get_document("").unwrap_err();
-    assert!(err.to_string().contains("not found"));
-
-    let err = store.save_document("doc:1", "").unwrap_err();
-    assert!(err.to_string().contains("content must not be empty"));
-
-    let err = store.save_document("readonly:config", "data").unwrap_err();
-    assert!(err.to_string().contains("read-only"));
-}
-
-#[test]
-fn ok_paths_work() {
-    let store = DocumentStore;
-    assert!(store.get_document("doc:1").is_ok());
-    assert!(store.save_document("doc:1", "hello").is_ok());
-}

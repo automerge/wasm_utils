@@ -28,18 +28,9 @@ pub(crate) fn rust_type_to_ts(ty: &Type) -> String {
                 }
                 "u64" | "i64" | "u128" | "i128" => "bigint".into(),
 
-                // JS sys types
-                "Uint8Array" => "Uint8Array".into(),
-                "Uint16Array" => "Uint16Array".into(),
-                "Uint32Array" => "Uint32Array".into(),
-                "Int8Array" => "Int8Array".into(),
-                "Int16Array" => "Int16Array".into(),
-                "Int32Array" => "Int32Array".into(),
-                "Float32Array" => "Float32Array".into(),
-                "Float64Array" => "Float64Array".into(),
+                // js-sys types whose TS name differs from the Rust name. Others
+                // (`Uint8Array`, `ArrayBuffer`, `Function`, ...) fall through.
                 "Array" => "Array<any>".into(),
-                "ArrayBuffer" => "ArrayBuffer".into(),
-                "Function" => "Function".into(),
                 "Map" => "Map<any, any>".into(),
                 "Set" => "Set<any>".into(),
                 "Promise" => "Promise<any>".into(),
@@ -72,10 +63,6 @@ pub(crate) fn rust_type_to_ts(ty: &Type) -> String {
                     if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
                         if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
                             let inner_ts = rust_type_to_ts(inner);
-                            if inner_ts == "number" {
-                                // Numeric vectors currently map to Array<number>.
-                                return "Array<number>".into();
-                            }
                             return alloc::format!("Array<{inner_ts}>");
                         }
                     }
@@ -126,5 +113,116 @@ pub(crate) fn sync_return_to_ts(ret: &syn::ReturnType) -> String {
     match ret {
         syn::ReturnType::Default => "void".into(),
         syn::ReturnType::Type(_, ty) => rust_type_to_ts(ty),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::{format, string::String, vec::Vec};
+
+    fn ts(rust: &str) -> String {
+        rust_type_to_ts(&syn::parse_str::<Type>(rust).expect("valid Rust type"))
+    }
+
+    #[test]
+    fn leaf_types_map_to_their_ts_names() {
+        let table = [
+            ("()", "void"),
+            ("JsValue", "any"),
+            ("bool", "boolean"),
+            ("String", "string"),
+            ("str", "string"),
+            ("u32", "number"),
+            ("f64", "number"),
+            ("usize", "number"),
+            ("u64", "bigint"),
+            ("i128", "bigint"),
+            ("js_sys::Array", "Array<any>"),
+            ("js_sys::Map", "Map<any, any>"),
+            ("js_sys::Set", "Set<any>"),
+            ("js_sys::Promise", "Promise<any>"),
+            ("js_sys::Object", "object"),
+            ("js_sys::Uint8Array", "Uint8Array"),
+            ("MyType", "MyType"),
+            ("Option", "any | null"),
+            ("Result", "any"),
+            ("Vec", "Array<any>"),
+            ("fn(u32)", "any"),
+            ("(u8, u8)", "any"),
+        ];
+        for (rust, expected) in table {
+            assert_eq!(ts(rust), expected, "for `{rust}`");
+        }
+    }
+
+    #[test]
+    fn return_types() {
+        let ret = |src: &str| sync_return_to_ts(&syn::parse_str(src).expect("valid return type"));
+        assert_eq!(ret(""), "void");
+        assert_eq!(ret("-> u32"), "number");
+        assert_eq!(
+            async_return_to_ts(&syn::parse_str("Result<(), JsValue>").expect("valid type")),
+            "Promise<void>"
+        );
+    }
+
+    const LEAVES: &[&str] = &[
+        "()",
+        "bool",
+        "u8",
+        "i64",
+        "String",
+        "str",
+        "JsValue",
+        "Uint8Array",
+        "MyType",
+    ];
+
+    /// Build a Rust type from bytes: the first picks a leaf, each later byte
+    /// wraps it in a reference, `Option`, `Vec`, slice, or `Result`.
+    fn build_type(bytes: &[u8]) -> String {
+        let Some((first, rest)) = bytes.split_first() else {
+            return "u8".into();
+        };
+        let leaf = LEAVES
+            .get(usize::from(*first) % LEAVES.len())
+            .expect("index is reduced modulo the length");
+        let mut ty = String::from(*leaf);
+        for byte in rest.iter().take(5) {
+            ty = match byte % 5 {
+                0 => format!("&{ty}"),
+                1 => format!("Option<{ty}>"),
+                2 => format!("Vec<{ty}>"),
+                3 => format!("&[{ty}]"),
+                _ => format!("Result<{ty}, JsValue>"),
+            };
+        }
+        ty
+    }
+
+    /// The wrappers map structurally: each one transforms the TS of its
+    /// inner type in a fixed way, whatever that inner type is.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn wrappers_map_structurally() {
+        bolero::check!().with_type::<Vec<u8>>().for_each(|bytes| {
+            let rust = build_type(bytes);
+            let inner = ts(&rust);
+
+            assert_eq!(ts(&format!("&{rust}")), inner);
+            assert_eq!(ts(&format!("&mut {rust}")), inner);
+            assert_eq!(ts(&format!("Option<{rust}>")), format!("{inner} | null"));
+            assert_eq!(ts(&format!("Result<{rust}, js_sys::Error>")), inner);
+            assert_eq!(ts(&format!("Vec<{rust}>")), format!("Array<{inner}>"));
+            assert_eq!(ts(&format!("&[{rust}]")), format!("Array<{inner}>"));
+            assert_eq!(
+                async_return_to_ts(&syn::parse_str(&rust).expect("valid type")),
+                format!("Promise<{inner}>")
+            );
+
+            assert!(!inner.is_empty());
+            assert_eq!(inner.matches('<').count(), inner.matches('>').count());
+        });
     }
 }

@@ -35,12 +35,3 @@ fn enum_converts_to_jsvalue() {
     fn assert_from<T: Into<wasm_bindgen::JsValue>>() {}
     assert_from::<WasmConnectError>();
 }
-
-#[test]
-fn each_variant_constructs() {
-    let _ = WasmConnectError::from(TimeoutError { ms: 5000 });
-    let _ = WasmConnectError::from(PermissionError {
-        resource: "/secret",
-    });
-    let _ = WasmConnectError::Refused;
-}

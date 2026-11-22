@@ -4,6 +4,7 @@
 // and js-sys types. The tests are compile-time assertions — if this crate
 // compiles, the macro works correctly with the real dependencies.
 
+mod compile_fail;
 mod doc_examples;
 mod js_name_override;
 mod manual_error_impl;

@@ -27,7 +27,17 @@ pub trait FromJsRef: Sized {
     ///
     /// The default implementation uses `dyn_ref` (`instanceof`), which does
     /// _not_ work for `wasm_refgen`-generated extern types. The generated
-    /// `FromJsRef` impl overrides this with a duck-type `Reflect::has` check.
+    /// `FromJsRef` impl overrides this with a duck-type check: it calls the
+    /// value's upcast tag method and returns `None` if that throws or returns
+    /// the wrong type.
+    ///
+    /// # Ownership
+    ///
+    /// The generated impl takes ownership of whatever the tag method returns.
+    /// For a genuine instance that is a fresh clone, so `js_value` stays
+    /// usable. A hand-written JS object whose tag returns an _existing_
+    /// instance hands that instance over, and it can't be used from JS
+    /// afterwards.
     #[must_use]
     fn try_from_js_value(js_value: &JsValue) -> Option<Self> {
         js_value

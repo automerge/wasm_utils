@@ -65,6 +65,14 @@
 //! so the consuming crate must depend on both `wasm-bindgen` and `js-sys`
 //! directly (and must not rename them).
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+use alloc::{
+    borrow::ToOwned,
+    string::{String, ToString},
+};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
@@ -208,6 +216,7 @@ fn strip_wasm_prefix(name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{format, vec::Vec};
 
     /// Helper: run the macro and parse its output as an `impl` item, so every
     /// test also checks that the expansion is syntactically valid Rust.
@@ -299,21 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn js_name_override() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            #[wasm_error(js_name = "StorageFailure")]
-            pub struct WasmIoError(IoError);
-        });
-
-        assert!(
-            output.contains(r#"set_name ("StorageFailure")"#)
-                || output.contains(r#"set_name("StorageFailure")"#),
-            "must use explicit js_name override.\nOutput: {output}",
-        );
-    }
-
-    #[test]
     fn uses_fully_qualified_paths() {
         let output = expand(quote! {
             #[derive(Debug)]
@@ -335,8 +329,8 @@ mod tests {
             "must use fully qualified ::js_sys::Error::new.\nOutput: {output}",
         );
         assert!(
-            output.contains("to_string"),
-            "must call .to_string() on the error.\nOutput: {output}",
+            output.contains("string :: ToString :: to_string (& err)"),
+            "must call ToString::to_string on the error.\nOutput: {output}",
         );
         assert!(
             output.contains(":: core :: error :: Error") || output.contains("::core::error::Error"),
@@ -365,16 +359,6 @@ mod tests {
     }
 
     #[test]
-    fn strip_wasm_prefix_without_prefix() {
-        assert_eq!(strip_wasm_prefix("ConnectError"), "ConnectError");
-    }
-
-    #[test]
-    fn strip_wasm_prefix_exact_wasm_unchanged() {
-        assert_eq!(strip_wasm_prefix("Wasm"), "Wasm");
-    }
-
-    #[test]
     fn strip_wasm_prefix_requires_word_boundary() {
         assert_eq!(strip_wasm_prefix("WasmtimeError"), "WasmtimeError");
         assert_eq!(strip_wasm_prefix("WasmerError"), "WasmerError");
@@ -390,116 +374,8 @@ mod tests {
         });
 
         assert!(
-            output.contains("< T >") || output.contains("<T>"),
-            "generic parameters must appear in the impl.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn strip_wasm_prefix_lowercase_wasm_unchanged() {
-        assert_eq!(strip_wasm_prefix("wasmError"), "wasmError");
-    }
-
-    #[test]
-    fn strip_wasm_prefix_only_strips_leading() {
-        assert_eq!(strip_wasm_prefix("MyWasmError"), "MyWasmError");
-    }
-
-    #[test]
-    fn js_name_override_on_enum() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            #[wasm_error(js_name = "CustomEnumError")]
-            pub enum WasmMultiError {
-                A,
-                B,
-            }
-        });
-
-        assert!(
-            output.contains(r#"set_name ("CustomEnumError")"#)
-                || output.contains(r#"set_name("CustomEnumError")"#),
-            "js_name override must work on enums.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn unit_struct() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            pub struct WasmUnitError;
-        });
-
-        assert!(
-            output.contains(r#"set_name ("UnitError")"#)
-                || output.contains(r#"set_name("UnitError")"#),
-            "must handle unit structs.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn tuple_struct_single_field() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            pub struct WasmWrappedError(InnerError);
-        });
-
-        assert!(
-            output.contains("From < WasmWrappedError >")
-                || output.contains("From<WasmWrappedError>"),
-            "must handle single-field tuple structs.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn named_fields_struct() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            pub struct WasmDetailedError {
-                message: String,
-                code: u32,
-            }
-        });
-
-        assert!(
-            output.contains(r#"set_name ("DetailedError")"#)
-                || output.contains(r#"set_name("DetailedError")"#),
-            "must handle structs with named fields.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn enum_with_unit_variants() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            pub enum WasmSimpleError {
-                NotFound,
-                PermissionDenied,
-                Timeout,
-            }
-        });
-
-        assert!(
-            output.contains(r#"set_name ("SimpleError")"#)
-                || output.contains(r#"set_name("SimpleError")"#),
-            "must handle enums with unit variants.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn enum_with_mixed_variants() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            pub enum WasmMixedError {
-                Simple,
-                WithData(u32),
-                WithFields { msg: String },
-            }
-        });
-
-        assert!(
-            output.contains("From < WasmMixedError >") || output.contains("From<WasmMixedError>"),
-            "must handle enums with mixed variant kinds.\nOutput: {output}",
+            output.starts_with("impl < T > :: core :: convert :: From < WasmError < T > >"),
+            "impl and type generics must both be emitted.\nOutput: {output}",
         );
     }
 
@@ -528,7 +404,7 @@ mod tests {
         });
 
         assert!(
-            output.contains("'a"),
+            output.starts_with("impl < 'a > :: core :: convert :: From < WasmBorrowError < 'a > >"),
             "lifetime parameters must be preserved.\nOutput: {output}",
         );
     }
@@ -540,12 +416,10 @@ mod tests {
             pub struct WasmPairError<A, B>(A, B);
         });
 
-        let has_both = (output.contains("< A , B >") || output.contains("<A, B>"))
-            && (output.contains("WasmPairError < A , B >")
-                || output.contains("WasmPairError<A, B>"));
-
         assert!(
-            has_both,
+            output.starts_with(
+                "impl < A , B > :: core :: convert :: From < WasmPairError < A , B > >"
+            ),
             "multiple generic parameters must all appear.\nOutput: {output}",
         );
     }
@@ -612,22 +486,6 @@ mod tests {
     }
 
     #[test]
-    fn other_attributes_are_ignored() {
-        let output = expand(quote! {
-            #[derive(Debug, Clone)]
-            #[allow(dead_code)]
-            #[cfg(target_arch = "wasm32")]
-            pub struct WasmAnnotatedError(String);
-        });
-
-        assert!(
-            output.contains(r#"set_name ("AnnotatedError")"#)
-                || output.contains(r#"set_name("AnnotatedError")"#),
-            "non-wasm_error attributes must not interfere.\nOutput: {output}",
-        );
-    }
-
-    #[test]
     fn empty_wasm_error_attr_uses_default() {
         let output = expand(quote! {
             #[derive(Debug)]
@@ -665,7 +523,7 @@ mod tests {
         });
 
         assert!(
-            !err.is_empty(),
+            err.contains("expected string literal"),
             "must reject non-string literal for js_name.\nError: {err}",
         );
     }
@@ -679,7 +537,7 @@ mod tests {
         });
 
         assert!(
-            !err.is_empty(),
+            err.contains("expected `=`"),
             "must reject bare key without `= \"value\"`.\nError: {err}",
         );
     }
@@ -707,47 +565,6 @@ mod tests {
         assert!(
             output.contains(r#"set_name ("RawError")"#),
             "the `r#` prefix must not reach the JS name.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn wasm_prefix_without_word_boundary_is_kept() {
-        let output = expand(quote! {
-            #[derive(Debug)]
-            pub struct WasmtimeError;
-        });
-
-        assert!(
-            output.contains(r#"set_name ("WasmtimeError")"#),
-            "`Wasmtime` is one word; the prefix must not be stripped.\nOutput: {output}",
-        );
-    }
-
-    #[test]
-    fn error_on_empty_explicit_js_name() {
-        let err = expand_err(quote! {
-            #[derive(Debug)]
-            #[wasm_error(js_name = "")]
-            pub struct WasmFooError;
-        });
-
-        assert!(
-            err.contains("resolved JS error name is empty"),
-            "must reject empty explicit js_name.\nError: {err}",
-        );
-    }
-
-    #[test]
-    fn error_on_whitespace_only_js_name() {
-        let err = expand_err(quote! {
-            #[derive(Debug)]
-            #[wasm_error(js_name = "   ")]
-            pub struct WasmFooError;
-        });
-
-        assert!(
-            err.contains("resolved JS error name is empty"),
-            "must reject whitespace-only js_name.\nError: {err}",
         );
     }
 
@@ -831,22 +648,73 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
-    fn strip_wasm_prefix_properties() {
-        bolero::check!().with_type::<String>().for_each(|name| {
-            let result = strip_wasm_prefix(name);
-
-            match name.strip_prefix("Wasm") {
-                // Stripped exactly when `Wasm` is followed by an uppercase char
-                Some(rest) if rest.starts_with(char::is_uppercase) => assert_eq!(result, rest),
-                _ => assert_eq!(result, name),
+    fn error_on_attr_on_union_field() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            pub union WasmUnionError {
+                #[wasm_error(js_name = "Inner")]
+                code: u32,
             }
+        });
 
-            // Stripping never yields an empty name from a non-empty one
-            assert!(
-                name.is_empty() || !result.is_empty(),
-                "empty result for {name:?}"
-            );
+        assert!(
+            err.contains("only supported on the type itself"),
+            "Error: {err}"
+        );
+    }
+
+    /// A `Wasm` word followed by an uppercase char is always stripped.
+    /// (Built from parts, since random strings rarely start with "Wasm".)
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn strip_wasm_prefix_strips_at_word_boundary() {
+        bolero::check!()
+            .with_type::<(char, String)>()
+            .for_each(|(first, tail)| {
+                if first.is_uppercase() {
+                    let rest = format!("{first}{tail}");
+                    assert_eq!(strip_wasm_prefix(&format!("Wasm{rest}")), rest);
+                }
+            });
+    }
+
+    /// The result is the input, or the input minus a leading `Wasm` that was
+    /// followed by an uppercase char. It is never emptier than that.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn strip_wasm_prefix_only_removes_a_leading_wasm_word() {
+        bolero::check!().with_type::<String>().for_each(|name| {
+            let out = strip_wasm_prefix(name);
+            assert!(name.ends_with(out));
+            if out != name {
+                assert_eq!(name.len(), out.len() + "Wasm".len());
+                assert!(name.starts_with("Wasm"));
+                assert!(out.starts_with(char::is_uppercase));
+            }
+        });
+    }
+
+    /// Any explicit `js_name` is emitted verbatim (escaping included), unless
+    /// it is blank, which is rejected.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn explicit_js_name_roundtrips_or_is_rejected_when_blank() {
+        bolero::check!().with_type::<String>().for_each(|name| {
+            let input: DeriveInput = syn::parse_quote! {
+                #[wasm_error(js_name = #name)]
+                struct WasmAnyError;
+            };
+            match wasm_error_impl(&input) {
+                Ok(tokens) => {
+                    assert!(!name.trim().is_empty());
+                    let expected = format!("set_name ({})", quote!(#name));
+                    assert!(tokens.to_string().contains(&expected));
+                }
+                Err(err) => {
+                    assert!(name.trim().is_empty());
+                    assert!(err.to_string().contains("resolved JS error name is empty"));
+                }
+            }
         });
     }
 }

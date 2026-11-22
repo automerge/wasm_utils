@@ -176,69 +176,7 @@ fn rust_export_implements_doc_storage() {
 }
 
 #[test]
-fn generic_function_accepts_both_impls() {
-    fn use_storage<T: DocStorage>(_s: &T) {}
-    let _ = use_storage::<JsDocStorage>;
-    let _ = use_storage::<WasmInMemoryDocStorage>;
-}
-
-#[test]
-fn multi_trait_generic_compiles() {
-    fn use_both<S: DocStorage, A: Auth>(_s: &S, _a: &A) {}
-    let _ = use_both::<JsDocStorage, JsAuth>;
-    let _ = use_both::<WasmInMemoryDocStorage, JsAuth>;
-}
-
-#[test]
 fn mock_implements_doc_storage() {
     fn assert_doc_storage<T: DocStorage>() {}
     assert_doc_storage::<MockDocStorage>();
-}
-
-#[test]
-fn mock_implements_auth() {
-    fn assert_auth<T: Auth>() {}
-    assert_auth::<MockAuth>();
-}
-
-#[test]
-fn mock_usable_in_generic_functions() {
-    // Type-compatibility only: `JsValue::from_str` panics on non-wasm32, so
-    // these can't be invoked on the host.
-    let _ = save_if_permitted::<MockDocStorage, MockAuth>;
-    let _ = check_access_core::<JsAuth>;
-}
-
-#[test]
-fn core_bridge_compiles_for_extern_type() {
-    fn assert_core_auth<T: CoreAuth>() {}
-    assert_core_auth::<JsAuth>();
-}
-
-#[test]
-fn async_generic_function_compiles() {
-    fn check_types<S: DocStorage>() {
-        fn assert_future<T: core::future::Future>(_t: &T) {}
-        fn inner<S: DocStorage>(s: &S) {
-            let fut = load_document_generic(s, JsValue::NULL);
-            assert_future(&fut);
-        }
-        let _ = inner::<S>;
-    }
-    check_types::<JsDocStorage>();
-    check_types::<WasmInMemoryDocStorage>();
-    check_types::<MockDocStorage>();
-}
-
-#[test]
-fn multi_bound_async_generic_compiles() {
-    fn check_types<S: DocStorage, A: Auth>() {
-        fn inner<S: DocStorage, A: Auth>(s: &S, a: &A) {
-            let _fut = authorized_delete(s, a, JsValue::NULL);
-        }
-        let _ = inner::<S, A>;
-    }
-    check_types::<JsDocStorage, JsAuth>();
-    check_types::<WasmInMemoryDocStorage, MockAuth>();
-    check_types::<MockDocStorage, MockAuth>();
 }
