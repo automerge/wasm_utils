@@ -6,9 +6,9 @@ publish = false
 
 # This crate holds `#[wasm_bindgen_test]` cases that exercise the *runtime*
 # behavior of the generated code (JS Error.name, Reflect::has duck-typing,
-# FromJsRef roundtrips, async JsFuture resolution/rejection). It only compiles
-# and runs under `wasm32-unknown-unknown` via `wasm-pack test`; it is excluded
-# from the default `cargo test --workspace` host run (see workspace Cargo.toml).
+# FromJsRef roundtrips, async JsFuture resolution/rejection). The tests only
+# execute under `wasm32-unknown-unknown` via `wasm-pack test`; on the host the
+# crate still builds, lints, and documents (with zero tests to run).
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -18,10 +18,17 @@ from_js_ref = { path = "../../from_js_ref" }
 js-sys.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
+wasm-bindgen-test = "0.3"
 wasm_bindgen_error = { path = "../../wasm_bindgen_error" }
 wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }
 wasm_refgen = { path = "../../wasm_refgen" }
-wasm-bindgen-test = "0.3"
+
+[features]
+# Configure the suite to run in a browser instead of Node. The test runner
+# skips Node-configured suites under `--firefox`/`--chrome` (exiting 0), so
+# browser runs must enable this: `wasm-pack test --headless --firefox
+# tests/wasm_runtime_tests --features browser`.
+browser = []
 
 [dependencies.thiserror]
 version = "2.0"

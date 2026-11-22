@@ -46,7 +46,7 @@ fn mixed_sync_async() {
     let _ = use_storage::<JsStorage>;
 }
 
-// ── Typed error types ────────────────────────────────────────────
+// Typed error types
 
 /// Async methods can use `js_sys::Error` as the error type instead of `JsValue`.
 #[js_trait(js_type = JsTypedApi)]

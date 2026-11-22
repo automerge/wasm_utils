@@ -15,7 +15,7 @@ use thiserror::Error;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_error::WasmError;
 
-// ── Doc example: "Motivation" (line 14) ─────────────────────────────
+// Doc example: "Motivation"
 // The hand-written boilerplate that WasmError replaces.
 
 #[derive(Debug, Error)]
@@ -36,7 +36,7 @@ fn manual_from_impl_compiles() {
     assert_into_jsvalue::<ManualError>();
 }
 
-// ── Doc example: "Usage" (line 28) ──────────────────────────────────
+// Doc example: "Usage"
 // The derive macro in action.
 
 #[derive(Debug, Error)]

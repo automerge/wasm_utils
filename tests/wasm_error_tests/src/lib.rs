@@ -10,3 +10,4 @@ mod manual_error_impl;
 mod multi_variant_enum;
 mod newtype_wrapper;
 mod realistic_app;
+mod where_clause;

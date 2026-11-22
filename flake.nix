@@ -124,11 +124,11 @@
 
             "wasm:runtime:firefox" =
               cmd "Run runtime Wasm tests in headless Firefox"
-                "${wasm-pack'} test --headless --firefox tests/wasm_runtime_tests";
+                "${wasm-pack'} test --headless --firefox tests/wasm_runtime_tests --features browser";
 
             "wasm:runtime:chrome" =
               cmd "Run runtime Wasm tests in headless Chrome"
-                "${wasm-pack'} test --headless --chrome tests/wasm_runtime_tests";
+                "${wasm-pack'} test --headless --chrome tests/wasm_runtime_tests --features browser";
 
             "wasm:ts:check" =
               cmd "Build TS fixture and type-check generated .d.ts with tsc"

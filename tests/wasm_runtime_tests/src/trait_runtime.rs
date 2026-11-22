@@ -12,13 +12,10 @@
     dead_code
 )]
 
+use js_sys::Reflect;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::wasm_bindgen_test;
 use wasm_bindgen_trait::{js_trait, wasm_implements};
-
-// ─────────────────────────────────────────────────────────────────────────
-// Sync interface
-// ─────────────────────────────────────────────────────────────────────────
 
 #[js_trait(js_type = JsCalculator)]
 pub trait Calculator {
@@ -28,10 +25,6 @@ pub trait Calculator {
     #[wasm_bindgen(js_name = "label")]
     fn js_label(&self) -> JsValue;
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// Async interface
-// ─────────────────────────────────────────────────────────────────────────
 
 #[js_trait(js_type = JsAsyncStore)]
 pub trait AsyncStore {
@@ -92,11 +85,6 @@ async fn async_rejection_maps_to_err() {
     );
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// #[wasm_implements]: a Rust-exported type implementing the interface, then
-// driven from JS to confirm the export is callable across the boundary.
-// ─────────────────────────────────────────────────────────────────────────
-
 #[wasm_bindgen]
 pub struct WasmRustCalculator;
 
@@ -145,13 +133,30 @@ fn rust_export_callable_from_js() {
 
 #[wasm_bindgen_test]
 fn rust_export_implements_trait_at_runtime() {
-    // The witness in `#[wasm_implements]` proves this at compile time; here we
-    // also call through the trait to confirm the generated impl runs.
+    // Drives the `#[wasm_implements]` witness: `WasmRustCalculator` satisfies
+    // `Calculator` through its own inherent methods, not the JS extern type.
     fn use_calc<C: Calculator>(c: &C) -> Option<f64> {
         c.js_add(JsValue::from_f64(1.0), JsValue::from_f64(2.0))
             .as_f64()
     }
 
-    let calc = make_calculator();
-    assert_eq!(use_calc(&calc), Some(3.0));
+    assert_eq!(use_calc(&WasmRustCalculator::new()), Some(3.0));
+}
+
+#[wasm_bindgen_test]
+fn rust_export_carries_runtime_tag() {
+    let js: JsValue = WasmRustCalculator::new().into();
+    let tag = Reflect::get(&js, &JsValue::from_str("__wasm_impl_Calculator"))
+        .expect("Reflect::get on an exported object must not throw");
+    assert!(
+        tag.is_function(),
+        "`#[wasm_implements(Calculator)]` must inject a callable `__wasm_impl_Calculator` tag",
+    );
+
+    let plain = make_calculator();
+    assert!(
+        !Reflect::has(&plain, &JsValue::from_str("__wasm_impl_Calculator"))
+            .expect("Reflect::has on an object must not throw"),
+        "a plain JS object must not carry the tag",
+    );
 }

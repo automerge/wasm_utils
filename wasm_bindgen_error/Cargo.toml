@@ -22,6 +22,7 @@ syn.workspace = true
 
 [dev-dependencies]
 bolero = "0.11"
+syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true

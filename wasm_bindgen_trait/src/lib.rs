@@ -164,12 +164,15 @@
 //! // Or with explicit Future:
 //! impl Storage for MyType {
 //!     fn js_save(&self, key: String, value: JsValue)
-//!         -> impl Future<Output = Result<(), JsValue>> + '_
+//!         -> impl Future<Output = Result<(), JsValue>>
 //!     {
 //!         async move { Ok(()) }
 //!     }
 //! }
 //! ```
+//!
+//! Keep the return type's bounds identical to the trait's: the future already
+//! captures `&self`, and adding `+ '_` triggers the `refining_impl_trait` lint.
 //!
 //! # Error Types
 //!

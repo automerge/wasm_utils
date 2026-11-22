@@ -53,6 +53,12 @@ impl WasmFoo {
 
 It is worth noting that the `#[wasm_refgen(...)]` line MUST be placed above `#[wasm_bindgen(...)]`.
 
+Apply `#[wasm_refgen]` to exactly _one_ `impl` block per type. Each use emits a
+`FromJsRef` impl and an upcast method for the type, so a second use (even with a
+different `js_ref` name) fails with conflicting-implementation (`E0119`) and
+duplicate-definition (`E0592`) errors. Further `#[wasm_bindgen]` impl blocks for
+the same type are fine without the attribute.
+
 Simple use is straightforward:
 
 ```rust

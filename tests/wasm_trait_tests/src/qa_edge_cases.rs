@@ -16,9 +16,7 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_trait::{js_trait, wasm_implements};
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. Empty trait — zero methods
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsEmpty)]
 pub trait Empty {}
@@ -32,9 +30,7 @@ fn empty_trait_compiles() {
     assert_trait::<JsEmpty>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. Single method trait — minimal case
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsPing)]
 pub trait Ping {
@@ -48,9 +44,7 @@ fn single_method_trait_compiles() {
     assert_trait::<JsPing>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 3. Method with many parameters (5+)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsManyParams)]
 pub trait ManyParams {
@@ -64,9 +58,7 @@ fn many_params_compiles() {
     assert_trait::<JsManyParams>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 4. Method returning Option<JsValue>
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsMaybeValue)]
 pub trait MaybeValue {
@@ -80,13 +72,11 @@ fn option_return_compiles() {
     assert_trait::<JsMaybeValue>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 5. Method with reference params (&str, &JsValue)
 //
 // NOTE: &str and &JsValue are valid in wasm_bindgen extern "C" blocks.
 // &[u8] is NOT valid in extern blocks (wasm_bindgen rejects it), so we
 // only test the reference types wasm_bindgen actually supports.
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsRefParams)]
 pub trait RefParams {
@@ -103,9 +93,7 @@ fn ref_params_compiles() {
     assert_trait::<JsRefParams>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 6. Multiple #[wasm_implements] on same struct (separate impl blocks)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsAlpha)]
 pub trait Alpha {
@@ -151,9 +139,7 @@ fn multiple_wasm_implements_compiles() {
     assert_beta::<JsBeta>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 7. Trait with doc comments — verify they survive macro expansion
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /// This doc comment should survive on the trait.
 #[js_trait(js_type = JsDocumented)]
@@ -169,9 +155,7 @@ fn doc_comments_survive() {
     assert_trait::<JsDocumented>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 8. Method with explicit js_name attr
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsNoWbAttr)]
 pub trait NoWbAttr {
@@ -185,9 +169,7 @@ fn explicit_js_name_attr_compiles() {
     assert_trait::<JsNoWbAttr>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 9. Trait method names that collide with __wasm_trait_ prefix
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsPrefixCollide)]
 pub trait PrefixCollide {
@@ -201,9 +183,7 @@ fn prefix_collision_compiles() {
     assert_trait::<JsPrefixCollide>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 10. Very long method names
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsLongName)]
 pub trait LongName {
@@ -221,9 +201,7 @@ fn very_long_method_name_compiles() {
     assert_trait::<JsLongName>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 11. Async method returning Result<JsValue, JsValue>
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsIdentityAsync)]
 pub trait IdentityAsync {
@@ -237,9 +215,7 @@ fn async_result_jsvalue_jsvalue_compiles() {
     assert_trait::<JsIdentityAsync>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 12. Catch method (sync) returning Result<JsValue, JsValue>
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsCatcher)]
 pub trait Catcher {
@@ -253,9 +229,7 @@ fn sync_catch_result_compiles() {
     assert_trait::<JsCatcher>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 13. JS name check — happy path
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsTransportQa)]
 pub trait TransportQa {
@@ -298,13 +272,11 @@ fn js_interface_const_has_expected_names() {
     );
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 14. JS name check — mismatched name (compile-fail)
 //
 // This test has a wrong js_name ("sendBytez" instead of "sendBytes").
 // It MUST fail to compile due to the const assertion in wasm_implements.
 // Gated behind `#[cfg(any())]` so it doesn't break the build.
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[cfg(any())]
 mod mismatched_js_name {
@@ -328,9 +300,7 @@ mod mismatched_js_name {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 15. JS name check — js_name required on trait methods
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsBareMethodQa)]
 pub trait BareMethodQa {
@@ -346,9 +316,7 @@ fn js_name_required_on_trait_method() {
     );
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 16. async fn in trait — mock uses plain async fn
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsAsyncQa)]
 pub trait AsyncQa {
@@ -380,9 +348,7 @@ fn async_mock_returns_future() {
     assert_future(&fut);
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 17. Typed error types — js_sys::Error
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsTypedErrQa)]
 pub trait TypedErrQa {
@@ -419,9 +385,7 @@ fn typed_error_mock_compiles() {
     let _ = MockTypedErrQa;
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 18. Mixed trait (async + sync + static) with wasm_implements
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsMixedQa)]
 pub trait MixedQa {
@@ -472,9 +436,7 @@ fn mixed_js_interface_const_correct() {
     );
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 19. Module-qualified trait path in wasm_implements
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 pub mod inner_module {
     use wasm_bindgen_trait::js_trait;
@@ -507,9 +469,7 @@ fn module_qualified_path_compiles() {
     assert_trait::<WasmInnerImpl>();
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 20. TS type mapping stress test
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #[js_trait(js_type = JsTsStress)]
 pub trait TsStress {
@@ -568,7 +528,7 @@ fn ts_stress_async_returns_future() {
     assert_future(&mock.js_fetch_array());
 }
 
-// ── Wrong return type: gated behind #[cfg(any())] ──────────────────
+// Wrong return type: gated behind #[cfg(any())]
 // The witness impl in #[wasm_implements] catches return type mismatches
 // at compile time. This block is gated off to document the expected error.
 
@@ -597,7 +557,7 @@ mod misuse_wrong_return_type {
     }
 }
 
-// ── Trait with supertraits compiles ────────────────────────────────
+// Trait with supertraits compiles
 
 #[js_trait(js_type = JsWithSuper)]
 pub trait WithSuper: Send + Sync {

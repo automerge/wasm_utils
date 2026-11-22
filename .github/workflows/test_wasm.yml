@@ -14,7 +14,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── Runtime behavior under Node (fast, no browser) ──────────────────────
   wasm-node:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +33,6 @@ jobs:
       - name: Run runtime tests (node)
         run: wasm-pack test --node tests/wasm_runtime_tests
 
-  # ── Runtime behavior in real headless browsers ──────────────────────────
   wasm-browser:
     runs-on: ubuntu-latest
     strategy:
@@ -66,9 +64,8 @@ jobs:
         uses: browser-actions/setup-chrome@v1
 
       - name: Run runtime tests (${{ matrix.browser }})
-        run: wasm-pack test --headless --${{ matrix.browser }} tests/wasm_runtime_tests
+        run: wasm-pack test --headless --${{ matrix.browser }} tests/wasm_runtime_tests --features browser
 
-  # ── TypeScript acceptance: generated .d.ts must type-check ──────────────
   ts-acceptance:
     runs-on: ubuntu-latest
     steps:

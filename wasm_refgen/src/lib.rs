@@ -487,7 +487,7 @@ mod tests {
         );
     }
 
-    // ── Error quality: non-Clone type ──────────────────────────────
+    // Error quality: non-Clone type
     // The macro generates `self.clone()`, so missing Clone surfaces as
     // a rustc error, not a macro error. This test documents that the
     // macro itself doesn't reject it — the error comes later.
@@ -527,10 +527,11 @@ mod tests {
         );
     }
 
-    // Two impl blocks on the same type with different `js_ref` names generate
-    // two distinct extern reference types.
+    // `#[wasm_refgen]` is once-per-type: every expansion for `WasmFoo` emits the
+    // same `FromJsRef` impl and upcast method regardless of `js_ref`, so two
+    // uses conflict (E0119/E0592). The README documents this restriction.
     #[test]
-    fn different_js_ref_names_generate_different_extern_types() {
+    fn expansions_for_same_type_emit_identical_type_level_items() {
         let output1 = expand(
             quote!(js_ref = JsFooV1),
             quote! {
@@ -550,13 +551,15 @@ mod tests {
             },
         );
 
-        assert!(
-            output1.contains("JsFooV1"),
-            "first expansion must use JsFooV1.\nOutput: {output1}",
-        );
-        assert!(
-            output2.contains("JsFooV2"),
-            "second expansion must use JsFooV2.\nOutput: {output2}",
-        );
+        for output in [&output1, &output2] {
+            assert!(
+                output.contains("impl :: from_js_ref :: FromJsRef for WasmFoo"),
+                "every expansion implements FromJsRef for the type.\nOutput: {output}",
+            );
+            assert!(
+                output.contains("fn __wasm_refgen_to_wasm_foo"),
+                "every expansion injects the same upcast method.\nOutput: {output}",
+            );
+        }
     }
 }

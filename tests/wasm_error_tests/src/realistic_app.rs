@@ -5,7 +5,7 @@ use thiserror::Error;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_error::WasmError;
 
-// ── Domain errors (from a core library) ─────────────────────────
+// Domain errors (from a core library)
 
 #[derive(Debug, Error)]
 #[error("document `{id}` not found")]
@@ -28,7 +28,7 @@ pub enum StorageError {
     Write(String),
 }
 
-// ── Wasm error wrappers ─────────────────────────────────────────
+// Wasm error wrappers
 
 /// JS sees `"NotFoundError"`.
 #[derive(Debug, Error, WasmError)]
@@ -51,7 +51,7 @@ pub enum WasmWriteError {
     Storage(#[from] StorageError),
 }
 
-// ── Exported Wasm API ───────────────────────────────────────────
+// Exported Wasm API
 
 #[wasm_bindgen]
 pub struct DocumentStore;
@@ -83,7 +83,7 @@ impl DocumentStore {
     }
 }
 
-// ── Tests ───────────────────────────────────────────────────────
+// Tests
 
 #[test]
 fn all_error_types_convert_to_jsvalue() {

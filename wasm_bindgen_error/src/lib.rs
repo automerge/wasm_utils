@@ -50,13 +50,24 @@
 //! # JS Error Name Resolution
 //!
 //! 1. If `#[wasm_error(js_name = "...")]` is present, use that string literally.
-//! 2. Otherwise, strip a leading `Wasm` prefix from the Rust type name.
+//! 2. Otherwise, strip a leading `Wasm` prefix from the Rust type name, but
+//!    only at a CamelCase word boundary (the next character is uppercase).
 //!    - `WasmHydrationError` → `"HydrationError"`
 //!    - `ConnectError` → `"ConnectError"` (no prefix to strip)
+//!    - `WasmtimeError` → `"WasmtimeError"` (`Wasm` is not a separate word)
+//!
+//! `js_name` may be given at most once, and `#[wasm_error]` is only accepted
+//! on the type itself, not on variants or fields.
+//!
+//! # Requirements
+//!
+//! The expansion refers to `::wasm_bindgen` and `::js_sys` by absolute path,
+//! so the consuming crate must depend on both `wasm-bindgen` and `js-sys`
+//! directly (and must not rename them).
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, LitStr};
+use syn::{parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, LitStr};
 
 /// Derive `From<Self> for JsValue` that creates a named JS error.
 ///
@@ -72,11 +83,11 @@ pub fn derive_wasm_error(input: TokenStream) -> TokenStream {
 
 fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let type_name = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    let js_name = extract_js_name(input)?;
+    reject_misplaced_attrs(&input.data)?;
 
-    let js_name_str = js_name.unwrap_or_else(|| strip_wasm_prefix(&type_name.to_string()));
+    let js_name_str = extract_js_name(&input.attrs)?
+        .unwrap_or_else(|| strip_wasm_prefix(&type_name.to_string()).to_owned());
 
     if js_name_str.trim().is_empty() {
         return Err(syn::Error::new(
@@ -85,13 +96,16 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         ));
     }
 
-    // Extend any existing where clause with a `Self: ::core::error::Error` bound
-    // so we get a clear compile error if the type doesn't implement Error.
-    let extended_where = if let Some(wc) = where_clause {
-        quote! { #wc #type_name #ty_generics: ::core::error::Error, }
-    } else {
-        quote! { where #type_name #ty_generics: ::core::error::Error, }
-    };
+    // Add a `Self: ::core::error::Error` bound for a clear compile error if the
+    // type doesn't implement `Error`. Going through `make_where_clause` handles
+    // missing, empty (`where;`), and non-comma-terminated where clauses alike.
+    let (_, ty_generics, _) = input.generics.split_for_impl();
+    let mut generics = input.generics.clone();
+    generics
+        .make_where_clause()
+        .predicates
+        .push(parse_quote!(#type_name #ty_generics: ::core::error::Error));
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     // The `From` impl lands in the consumer crate, which may be `#![no_std]`
     // where `ToString` isn't in the prelude. Pull in `alloc` via a block-local
@@ -99,7 +113,7 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     // `ToString::to_string` fully qualified, so the consumer needs no imports.
     Ok(quote! {
         impl #impl_generics ::core::convert::From<#type_name #ty_generics> for ::wasm_bindgen::JsValue
-        #extended_where
+        #where_clause
         {
             fn from(err: #type_name #ty_generics) -> Self {
                 extern crate alloc as _wasm_bindgen_error_alloc;
@@ -114,52 +128,108 @@ fn wasm_error_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     })
 }
 
-/// Extract `js_name = "..."` from `#[wasm_error(js_name = "...")]` if present.
-fn extract_js_name(input: &DeriveInput) -> syn::Result<Option<String>> {
-    for attr in &input.attrs {
-        if !attr.path().is_ident("wasm_error") {
-            continue;
-        }
+/// Extract `js_name = "..."` from the type's `#[wasm_error(...)]` attributes.
+///
+/// Every `#[wasm_error]` attribute is parsed (so typos are always reported),
+/// and a second `js_name`, in the same or another attribute, is an error.
+fn extract_js_name(attrs: &[Attribute]) -> syn::Result<Option<String>> {
+    let mut js_name: Option<LitStr> = None;
 
-        let mut js_name: Option<String> = None;
-
+    for attr in attrs.iter().filter(|attr| is_wasm_error(attr)) {
         attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("js_name") {
-                let value = meta.value()?;
-                let lit: LitStr = value.parse()?;
-                js_name = Some(lit.value());
-                Ok(())
-            } else {
-                Err(meta.error("unknown attribute, expected `js_name = \"...\"`"))
+            if !meta.path.is_ident("js_name") {
+                return Err(meta.error("unknown attribute, expected `js_name = \"...\"`"));
             }
-        })?;
 
-        if let Some(name) = js_name {
-            return Ok(Some(name));
-        }
+            let lit: LitStr = meta.value()?.parse()?;
+            if js_name.is_some() {
+                return Err(syn::Error::new(
+                    lit.span(),
+                    "duplicate `js_name`; specify it once",
+                ));
+            }
+
+            js_name = Some(lit);
+            Ok(())
+        })?;
     }
 
-    Ok(None)
+    Ok(js_name.map(|lit| lit.value()))
 }
 
-/// Strip a leading `Wasm` prefix from a type name.
+/// `wasm_error` is registered as a derive helper, so rustc accepts it on
+/// variants and fields too. It has no meaning there; reject it rather than
+/// silently ignoring it.
+fn reject_misplaced_attrs(data: &Data) -> syn::Result<()> {
+    let misplaced = match data {
+        Data::Struct(data) => field_attrs(&data.fields).find(|attr| is_wasm_error(attr)),
+        Data::Enum(data) => data
+            .variants
+            .iter()
+            .flat_map(|variant| variant.attrs.iter().chain(field_attrs(&variant.fields)))
+            .find(|attr| is_wasm_error(attr)),
+        Data::Union(data) => data
+            .fields
+            .named
+            .iter()
+            .flat_map(|field| &field.attrs)
+            .find(|attr| is_wasm_error(attr)),
+    };
+
+    misplaced.map_or(Ok(()), |attr| {
+        Err(syn::Error::new_spanned(
+            attr,
+            "`#[wasm_error]` is only supported on the type itself, not on variants or fields",
+        ))
+    })
+}
+
+fn field_attrs(fields: &Fields) -> impl Iterator<Item = &Attribute> {
+    fields.iter().flat_map(|field| &field.attrs)
+}
+
+fn is_wasm_error(attr: &Attribute) -> bool {
+    attr.path().is_ident("wasm_error")
+}
+
+/// Strip a leading `Wasm` word from a CamelCase type name.
 ///
-/// `WasmFooError` → `"FooError"`, `FooError` → `"FooError"`.
-fn strip_wasm_prefix(name: &str) -> String {
-    name.strip_prefix("Wasm").unwrap_or(name).to_string()
+/// `WasmFooError` → `"FooError"`, `FooError` → `"FooError"`,
+/// `WasmtimeError` → `"WasmtimeError"`.
+fn strip_wasm_prefix(name: &str) -> &str {
+    match name.strip_prefix("Wasm") {
+        Some(rest) if rest.starts_with(char::is_uppercase) => rest,
+        _ => name,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Helper: parse a token stream as a `DeriveInput`, run the macro,
-    /// and return the output as a `String`.
-    fn expand(input: proc_macro2::TokenStream) -> String {
+    /// Helper: run the macro and parse its output as an `impl` item, so every
+    /// test also checks that the expansion is syntactically valid Rust.
+    fn expand_impl(input: proc_macro2::TokenStream) -> syn::ItemImpl {
         let derive_input: DeriveInput = syn::parse2(input).expect("failed to parse derive input");
-        wasm_error_impl(&derive_input)
-            .expect("macro expansion failed")
-            .to_string()
+        let tokens = wasm_error_impl(&derive_input).expect("macro expansion failed");
+        let parsed = syn::parse2(tokens.clone());
+        assert!(parsed.is_ok(), "expansion is not a valid impl:\n{tokens}");
+        parsed.expect("checked above")
+    }
+
+    /// Helper: run the macro and return the (validated) output as a `String`.
+    fn expand(input: proc_macro2::TokenStream) -> String {
+        let item = expand_impl(input);
+        quote!(#item).to_string()
+    }
+
+    fn where_predicates(item: &syn::ItemImpl) -> Vec<String> {
+        item.generics
+            .where_clause
+            .iter()
+            .flat_map(|wc| &wc.predicates)
+            .map(|pred| quote!(#pred).to_string())
+            .collect()
     }
 
     /// Helper: parse a token stream as a `DeriveInput`, run the macro,
@@ -298,8 +368,16 @@ mod tests {
     }
 
     #[test]
-    fn strip_wasm_prefix_exact_wasm() {
-        assert_eq!(strip_wasm_prefix("Wasm"), "");
+    fn strip_wasm_prefix_exact_wasm_unchanged() {
+        assert_eq!(strip_wasm_prefix("Wasm"), "Wasm");
+    }
+
+    #[test]
+    fn strip_wasm_prefix_requires_word_boundary() {
+        assert_eq!(strip_wasm_prefix("WasmtimeError"), "WasmtimeError");
+        assert_eq!(strip_wasm_prefix("WasmerError"), "WasmerError");
+        assert_eq!(strip_wasm_prefix("WasmiTrap"), "WasmiTrap");
+        assert_eq!(strip_wasm_prefix("Wasm_Error"), "Wasm_Error");
     }
 
     #[test]
@@ -314,8 +392,6 @@ mod tests {
             "generic parameters must appear in the impl.\nOutput: {output}",
         );
     }
-
-    // ── Naming convention tests ───────────────────────────────────────
 
     #[test]
     fn strip_wasm_prefix_lowercase_wasm_unchanged() {
@@ -344,8 +420,6 @@ mod tests {
             "js_name override must work on enums.\nOutput: {output}",
         );
     }
-
-    // ── Struct shape variations ─────────────────────────────────────
 
     #[test]
     fn unit_struct() {
@@ -392,8 +466,6 @@ mod tests {
         );
     }
 
-    // ── Enum variations ─────────────────────────────────────────────
-
     #[test]
     fn enum_with_unit_variants() {
         let output = expand(quote! {
@@ -428,8 +500,6 @@ mod tests {
             "must handle enums with mixed variant kinds.\nOutput: {output}",
         );
     }
-
-    // ── Generics ────────────────────────────────────────────────────
 
     #[test]
     fn generic_with_trait_bounds() {
@@ -479,23 +549,65 @@ mod tests {
     }
 
     #[test]
-    fn generic_error_bound_appended_to_existing_where_clause() {
-        let output = expand(quote! {
+    fn error_bound_appended_to_where_clause_without_trailing_comma() {
+        let item = expand_impl(quote! {
             #[derive(Debug)]
-            pub struct WasmBoundedError<T> where T: Clone (T);
+            pub struct WasmBoundedError<T>(T) where T: Clone;
         });
 
-        assert!(
-            output.contains(":: core :: error :: Error") || output.contains("::core::error::Error"),
-            "Error bound must be appended even when where clause exists.\nOutput: {output}",
-        );
-        assert!(
-            output.contains("Clone"),
-            "existing where clause bounds must be preserved.\nOutput: {output}",
+        assert_eq!(
+            where_predicates(&item),
+            [
+                "T : Clone",
+                "WasmBoundedError < T > : :: core :: error :: Error"
+            ],
         );
     }
 
-    // ── Attribute interaction ───────────────────────────────────────
+    #[test]
+    fn error_bound_appended_to_where_clause_with_trailing_comma() {
+        let item = expand_impl(quote! {
+            #[derive(Debug)]
+            pub struct WasmBoundedError<T>(T) where T: Clone,;
+        });
+
+        assert_eq!(
+            where_predicates(&item),
+            [
+                "T : Clone",
+                "WasmBoundedError < T > : :: core :: error :: Error"
+            ],
+        );
+    }
+
+    #[test]
+    fn error_bound_added_to_empty_where_clause() {
+        let item = expand_impl(quote! {
+            #[derive(Debug)]
+            pub struct WasmBoundedError<T>(T) where;
+        });
+
+        assert_eq!(
+            where_predicates(&item),
+            ["WasmBoundedError < T > : :: core :: error :: Error"],
+        );
+    }
+
+    #[test]
+    fn error_bound_appended_to_named_struct_where_clause() {
+        let item = expand_impl(quote! {
+            #[derive(Debug)]
+            pub struct WasmBoundedError<T> where T: Clone + Send { inner: T }
+        });
+
+        assert_eq!(
+            where_predicates(&item),
+            [
+                "T : Clone + Send",
+                "WasmBoundedError < T > : :: core :: error :: Error"
+            ],
+        );
+    }
 
     #[test]
     fn other_attributes_are_ignored() {
@@ -527,8 +639,6 @@ mod tests {
             "empty #[wasm_error()] must fall through to default prefix stripping.\nOutput: {output}",
         );
     }
-
-    // ── Error paths ─────────────────────────────────────────────────
 
     #[test]
     fn error_on_unknown_attribute_key() {
@@ -573,15 +683,28 @@ mod tests {
     }
 
     #[test]
-    fn error_on_empty_js_name_from_prefix_strip() {
-        let err = expand_err(quote! {
+    fn type_named_wasm_keeps_its_name() {
+        let output = expand(quote! {
             #[derive(Debug)]
             pub struct Wasm;
         });
 
         assert!(
-            err.contains("resolved JS error name is empty"),
-            "must reject type named exactly `Wasm` (empty name after stripping).\nError: {err}",
+            output.contains(r#"set_name ("Wasm")"#),
+            "a bare `Wasm` has no following word to strip down to.\nOutput: {output}",
+        );
+    }
+
+    #[test]
+    fn wasm_prefix_without_word_boundary_is_kept() {
+        let output = expand(quote! {
+            #[derive(Debug)]
+            pub struct WasmtimeError;
+        });
+
+        assert!(
+            output.contains(r#"set_name ("WasmtimeError")"#),
+            "`Wasmtime` is one word; the prefix must not be stripped.\nOutput: {output}",
         );
     }
 
@@ -614,17 +737,81 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_wasm_error_attrs_uses_first() {
-        let output = expand(quote! {
+    fn error_on_duplicate_js_name_across_attrs() {
+        let err = expand_err(quote! {
             #[derive(Debug)]
             #[wasm_error(js_name = "First")]
             #[wasm_error(js_name = "Second")]
             pub struct WasmDuplicateError;
         });
 
+        assert!(err.contains("duplicate `js_name`"), "Error: {err}");
+    }
+
+    #[test]
+    fn error_on_duplicate_js_name_in_one_attr() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            #[wasm_error(js_name = "First", js_name = "Second")]
+            pub struct WasmDuplicateError;
+        });
+
+        assert!(err.contains("duplicate `js_name`"), "Error: {err}");
+    }
+
+    #[test]
+    fn error_on_typo_in_later_attr() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            #[wasm_error(js_name = "First")]
+            #[wasm_error(jsname = "Second")]
+            pub struct WasmTypoError;
+        });
+
+        assert!(err.contains("unknown attribute"), "Error: {err}");
+    }
+
+    #[test]
+    fn error_on_attr_on_enum_variant() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            pub enum WasmVariantError {
+                #[wasm_error(js_name = "Timeout")]
+                Timeout,
+            }
+        });
+
         assert!(
-            output.contains(r#"set_name ("First")"#) || output.contains(r#"set_name("First")"#),
-            "first #[wasm_error] attribute should win.\nOutput: {output}",
+            err.contains("only supported on the type itself"),
+            "Error: {err}"
+        );
+    }
+
+    #[test]
+    fn error_on_attr_on_struct_field() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            pub struct WasmFieldError(#[wasm_error(js_name = "Inner")] u32);
+        });
+
+        assert!(
+            err.contains("only supported on the type itself"),
+            "Error: {err}"
+        );
+    }
+
+    #[test]
+    fn error_on_attr_on_variant_field() {
+        let err = expand_err(quote! {
+            #[derive(Debug)]
+            pub enum WasmVariantFieldError {
+                Io { #[wasm_error(js_name = "Inner")] code: u32 },
+            }
+        });
+
+        assert!(
+            err.contains("only supported on the type itself"),
+            "Error: {err}"
         );
     }
 
@@ -634,23 +821,17 @@ mod tests {
         bolero::check!().with_type::<String>().for_each(|name| {
             let result = strip_wasm_prefix(name);
 
-            // Invariant 1: if input starts with "Wasm", output does not
-            if let Some(rest) = name.strip_prefix("Wasm") {
-                assert_eq!(result, rest);
+            match name.strip_prefix("Wasm") {
+                // Stripped exactly when `Wasm` is followed by an uppercase char
+                Some(rest) if rest.starts_with(char::is_uppercase) => assert_eq!(result, rest),
+                _ => assert_eq!(result, name),
             }
 
-            // Invariant 2: if input does not start with "Wasm", output == input
-            if !name.starts_with("Wasm") {
-                assert_eq!(result, *name);
-            }
-
-            // Invariant 3: empty result only when input is "" or exactly "Wasm"
-            if result.is_empty() {
-                assert!(
-                    name.is_empty() || name == "Wasm",
-                    "result was empty for input: {name:?}"
-                );
-            }
+            // Stripping never yields an empty name from a non-empty one
+            assert!(
+                name.is_empty() || !result.is_empty(),
+                "empty result for {name:?}"
+            );
         });
     }
 }

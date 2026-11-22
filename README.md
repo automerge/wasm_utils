@@ -15,6 +15,22 @@ no references in `Vec`s, no trait impls, stringly-typed errors, etc.).
 | [`wasm_bindgen_trait`](./wasm_bindgen_trait) | 0.1.0   | JS duck-typed interfaces as Rust traits with compile-time conformance checking                   |
 | [`wasm_bindgen_error`](./wasm_bindgen_error) | 0.1.0   | Derive macro to convert Rust error types into named JS errors                                    |
 
+## Installation
+
+Add the crates you use alongside the `wasm-bindgen` crates their generated code
+refers to:
+
+```toml
+[dependencies]
+from_js_ref = "0.2"          # with wasm_refgen
+js-sys = "0.3"               # wasm_bindgen_error, wasm_bindgen_trait
+wasm-bindgen = "0.2"         # all crates
+wasm-bindgen-futures = "0.4" # wasm_bindgen_trait with async methods
+wasm_bindgen_error = "0.1"
+wasm_bindgen_trait = "0.1"
+wasm_refgen = "0.2"
+```
+
 ## Quick Start
 
 ### Reference types with `wasm_refgen`

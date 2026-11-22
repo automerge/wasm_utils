@@ -10,8 +10,10 @@
 //! - `#[js_trait]` sync delegation and async `JsFuture` resolve/reject
 //! - `#[wasm_implements]` types being callable across the boundary
 //!
-//! Run with `wasm-pack test --node tests/wasm_runtime_tests` (or `--headless
-//! --firefox` / `--chrome`).
+//! Run with `wasm-pack test --node tests/wasm_runtime_tests`, or in a browser
+//! with `wasm-pack test --headless --firefox tests/wasm_runtime_tests --features
+//! browser` (likewise `--chrome`). Without the `browser` feature the suite is
+//! Node-only, and browser runs skip every test while still exiting 0.
 
 #![allow(
     clippy::expect_used,
@@ -21,6 +23,9 @@
     missing_debug_implementations,
     missing_docs
 )]
+
+#[cfg(feature = "browser")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 pub mod error_runtime;
 pub mod refgen_runtime;

@@ -11,11 +11,13 @@
 //! The source doc comments keep `ignore` markers so the examples still
 //! render in `rustdoc`.
 
+use core::future::Future;
+
 #[allow(unused_imports)]
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_trait::{js_trait, wasm_implements};
 
-// ── Doc example: "Quick Start §1 — Define a JS interface" (line 15) ─
+// Doc example: "Quick Start §1 — Define a JS interface"
 
 #[js_trait(js_type = JsStorage)]
 pub trait Storage {
@@ -38,7 +40,7 @@ fn js_trait_generates_extern_type_and_trait() {
     assert_js_cast::<JsStorage>();
 }
 
-// ── Doc example: "Quick Start §2 — Use the JS object" (line 39) ────
+// Doc example: "Quick Start §2 — Use the JS object"
 
 #[allow(dead_code)]
 fn accept_storage(s: &JsStorage) {
@@ -59,7 +61,7 @@ fn trait_usable_as_bound() {
     // accept_storage and use_storage compile — that's the test
 }
 
-// ── Doc example: "Quick Start §3 — wasm_implements" (line 55) ──────
+// Doc example: "Quick Start §3 — wasm_implements"
 
 #[wasm_bindgen]
 pub struct WasmMemoryStorage;
@@ -90,7 +92,7 @@ fn wasm_implements_conformance_compiles() {
     // WasmMemoryStorage compiles with #[wasm_implements] — that's the test
 }
 
-// ── Doc example: "Bridging to Domain Traits" (line 91) ──────────────
+// Doc example: "Bridging to Domain Traits"
 
 #[allow(dead_code)]
 trait DocumentStore {
@@ -134,7 +136,7 @@ fn domain_bridge_compiles() {
     assert_doc_store::<JsStorage>();
 }
 
-// ── Doc example: "Async Methods — impl styles" (line 153) ───────────
+// Doc example: "Async Methods — impl styles"
 
 #[allow(dead_code)]
 struct MyAsyncImpl;
@@ -145,10 +147,11 @@ impl Storage for MyAsyncImpl {
         Ok(())
     }
 
-    // Style 2: explicit Future return (no extra lifetime bound to avoid
-    // refining_impl_trait warning — just use async fn for both in tests)
-    async fn js_load(&self, _key: String) -> Result<JsValue, JsValue> {
-        Ok(JsValue::UNDEFINED)
+    // Style 2: explicit Future return. Matches the trait's bounds exactly;
+    // adding `+ '_` would trip `refining_impl_trait` on a `pub` trait.
+    #[allow(clippy::manual_async_fn)] // the explicit form is the point here
+    fn js_load(&self, _key: String) -> impl Future<Output = Result<JsValue, JsValue>> {
+        async move { Ok(JsValue::UNDEFINED) }
     }
 
     fn js_name(&self) -> String {
@@ -162,7 +165,7 @@ fn both_async_impl_styles_compile() {
     assert_storage::<MyAsyncImpl>();
 }
 
-// ── Doc example: "Error Types" (line 179) ───────────────────────────
+// Doc example: "Error Types"
 
 #[js_trait(js_type = JsApi)]
 pub trait Api {

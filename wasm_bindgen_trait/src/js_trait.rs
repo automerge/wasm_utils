@@ -540,27 +540,15 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         quote!()
     };
 
-    if trait_supertraits.is_empty() {
-        quote! {
-            #(#trait_attrs)*
-            #async_allow
-            #trait_vis trait #trait_name {
-                #[doc(hidden)]
-                const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
+    // Without supertraits, `colon_token` is `None` and both print nothing.
+    quote! {
+        #(#trait_attrs)*
+        #async_allow
+        #trait_vis trait #trait_name #colon_token #trait_supertraits {
+            #[doc(hidden)]
+            const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
 
-                #(#trait_methods)*
-            }
-        }
-    } else {
-        quote! {
-            #(#trait_attrs)*
-            #async_allow
-            #trait_vis trait #trait_name #colon_token #trait_supertraits {
-                #[doc(hidden)]
-                const __JS_INTERFACE: &[&str] = &[#(#js_name_literals),*];
-
-                #(#trait_methods)*
-            }
+            #(#trait_methods)*
         }
     }
 }
@@ -1252,9 +1240,7 @@ mod tests {
         &output[s..]
     }
 
-    // ------------------------------------------------------------------
     // Full expansion inspection tests
-    // ------------------------------------------------------------------
 
     #[test]
     fn full_sync_expansion() -> TestResult {
@@ -1616,9 +1602,7 @@ mod tests {
         Ok(())
     }
 
-    // ------------------------------------------------------------------
     // TS type mapping stress tests (QA round 2)
-    // ------------------------------------------------------------------
 
     #[test]
     fn ts_option_string_maps_to_string_or_null() -> TestResult {
@@ -1715,7 +1699,7 @@ mod tests {
         Ok(())
     }
 
-    // ── Deeply nested generic types ────────────────────────────────
+    // Deeply nested generic types
 
     #[test]
     fn ts_nested_result_option_vec() -> TestResult {
@@ -1755,7 +1739,7 @@ mod tests {
         Ok(())
     }
 
-    // ── Parse error recovery ───────────────────────────────────────
+    // Parse error recovery
 
     #[test]
     fn error_on_empty_args() {
@@ -1793,7 +1777,7 @@ mod tests {
         );
     }
 
-    // ── Trait with supertraits ─────────────────────────────────────
+    // Trait with supertraits
 
     #[test]
     fn trait_with_supertrait_compiles() -> TestResult {
