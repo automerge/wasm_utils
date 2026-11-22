@@ -7,7 +7,7 @@
 // rejected — if the generated types ever become too loose, those lines start
 // erroring (because the error they expect disappears) and the build fails.
 
-import { Counter, tryParse, type Storage } from "../pkg/wasm_ts_fixture";
+import { Counter, tryParse, type Edges, type Storage } from "../pkg/wasm_ts_fixture";
 
 // --- Exported class: Counter (with typescript_type round-trip) ---
 
@@ -47,6 +47,34 @@ export async function exerciseStorage(s: Storage): Promise<number> {
 }
 
 void exerciseStorage(myStorage);
+
+// --- #[js_trait] edge shapes: Edges ---
+// Reserved/colliding parameter names are escaped and deduplicated, and a
+// non-identifier method name is quoted.
+
+const myEdges: Edges = {
+  loop(for_: number, new_: number, new__: number): number {
+    return for_ + new_ + new__;
+  },
+  "my-method"(): number {
+    return 1;
+  },
+  async find(key: string): Promise<any> {
+    return key;
+  },
+};
+void myEdges;
+
+// Static methods are not members: they bind to a global and a namespace.
+globalThis.makeEdges = (seed: number): number => seed;
+edgeTools.version = (): string => "1.0";
+
+// @ts-expect-error - static `makeEdges` is not a member of the interface
+const _withStatic: Edges = { ...myEdges, makeEdges: (seed: number) => seed };
+void _withStatic;
+
+// @ts-expect-error - the global `makeEdges` takes a number
+globalThis.makeEdges = (seed: string): string => seed;
 
 // --- Exported function returning a number ---
 

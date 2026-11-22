@@ -132,7 +132,7 @@
 
             "wasm:ts:check" =
               cmd "Build TS fixture and type-check generated .d.ts with tsc"
-                "PATH=\"${pkgs.nodejs_22}/bin:${pkgs.wasm-pack}/bin:$PATH\" bash tests/wasm_ts_fixture/check-ts.sh";
+                "PATH=\"${pkgs.nodejs_22}/bin:${pkgs.typescript}/bin:${pkgs.wasm-pack}/bin:$PATH\" bash tests/wasm_ts_fixture/check-ts.sh";
           })
         ];
 

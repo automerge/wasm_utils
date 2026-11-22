@@ -159,3 +159,31 @@ fn rust_export_carries_runtime_tag() {
         "the tag reports conformance by returning true",
     );
 }
+
+// Static (no-receiver) methods bind to a JS global, or to a property of
+// `js_namespace`: exactly what the generated `declare global` TS describes.
+#[js_trait(js_type = JsStaticApi)]
+pub trait StaticApi {
+    #[wasm_bindgen(js_name = "qaMakeAnswer")]
+    fn js_make_answer(seed: u32) -> u32;
+
+    #[wasm_bindgen(js_namespace = qaTools, js_name = "version")]
+    fn js_version() -> String;
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function install_static_api() {
+    globalThis.qaMakeAnswer = (seed) => seed + 40;
+    globalThis.qaTools = { version: () => "qa-1" };
+}
+"#)]
+extern "C" {
+    fn install_static_api();
+}
+
+#[wasm_bindgen_test]
+fn static_methods_call_global_and_namespaced_functions() {
+    install_static_api();
+    assert_eq!(<JsStaticApi as StaticApi>::js_make_answer(2), 42);
+    assert_eq!(<JsStaticApi as StaticApi>::js_version(), "qa-1");
+}

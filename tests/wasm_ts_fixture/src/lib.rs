@@ -62,6 +62,27 @@ pub trait Storage {
     fn js_size(&self) -> u32;
 }
 
+/// Shapes whose TS output needs care: reserved and colliding parameter
+/// names, a non-identifier method name, a borrowed async parameter, and
+/// static methods bound to a global and to a namespace.
+#[js_trait(js_type = JsEdges)]
+pub trait Edges {
+    #[wasm_bindgen(js_name = "loop")]
+    fn js_loop(&self, r#for: u32, new: u32, new_: u32) -> u32;
+
+    #[wasm_bindgen(js_name = "my-method")]
+    fn js_my_method(&self) -> u32;
+
+    #[wasm_bindgen(js_name = "find")]
+    async fn js_find(&self, key: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = "makeEdges")]
+    fn js_make_edges(seed: u32) -> u32;
+
+    #[wasm_bindgen(js_namespace = edgeTools, js_name = "version")]
+    fn js_version() -> String;
+}
+
 #[derive(Debug, thiserror::Error, WasmError)]
 #[error("storage error: {0}")]
 pub struct WasmStorageError(String);

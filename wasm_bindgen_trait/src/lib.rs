@@ -204,6 +204,40 @@
 //! > `Result<Uint8Array, js_sys::Error>` in async maps to
 //! > `Promise<Uint8Array>` in TS — the rejection type is implicit.
 //!
+//! # Static Methods
+//!
+//! A trait method without `self` isn't part of the JS object. It binds to a JS
+//! function, the same way a free `#[wasm_bindgen] extern` fn does:
+//!
+//! - by default, a global function named by `js_name`;
+//! - with `js_namespace = ...` (or `static_method_of = ...`), a property of
+//!   that object;
+//! - with `module = "..."`, an export of that module.
+//!
+//! The generated TS leaves static methods out of the interface and declares
+//! them where they bind (`declare global { var create: ... }`, or inside a
+//! `namespace` for `js_namespace`). Module imports aren't declared, since the
+//! module ships its own types. A static method's `js_name` must be a JS
+//! identifier.
+//!
+//! # TypeScript Output
+//!
+//! `#[js_trait]` emits a TS interface for the trait. It keeps the output
+//! valid TS:
+//!
+//! - Parameter names that are reserved in TS get a trailing `_`
+//!   (`r#for` → `for_`, `new` → `new_`), and stay unique within a method.
+//!   Parameter names are documentation only, so this doesn't affect callers.
+//! - A method `js_name` that isn't a JS identifier is quoted
+//!   (`"my-method"(): number;`).
+//! - The interface name (`js_name` on `#[js_trait]`, or the trait name) must be
+//!   a JS identifier and not a reserved word or builtin type such as `string`;
+//!   otherwise it's a compile error.
+//!
+//! > **Note:** don't give the interface the same name as an exported class.
+//! > TypeScript merges an interface into a same-named class, so the class
+//! > would appear to have the interface's methods even if it doesn't.
+
 //! # JS Method Name Checking
 //!
 //! `#[js_trait]` generates a hidden constant listing the expected JS method

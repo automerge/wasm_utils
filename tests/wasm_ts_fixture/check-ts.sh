@@ -11,6 +11,11 @@ echo "==> Building fixture with wasm-pack (target nodejs)"
 wasm-pack build --target nodejs --dev --out-dir pkg "$FIXTURE_DIR"
 
 echo "==> Type-checking generated .d.ts with tsc --noEmit"
-npx --yes -p typescript@5 tsc --noEmit --project "$FIXTURE_DIR/ts/tsconfig.json"
+# Prefer a tsc on PATH (the Nix dev shell provides one); fall back to npx.
+if command -v tsc >/dev/null 2>&1; then
+  tsc --noEmit --project "$FIXTURE_DIR/ts/tsconfig.json"
+else
+  npx --yes -p typescript@5 tsc --noEmit --project "$FIXTURE_DIR/ts/tsconfig.json"
+fi
 
 echo "==> TypeScript acceptance check passed"
