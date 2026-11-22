@@ -23,13 +23,6 @@ wasm_bindgen_error = { path = "../../wasm_bindgen_error" }
 wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }
 wasm_refgen = { path = "../../wasm_refgen" }
 
-[features]
-# Configure the suite to run in a browser instead of Node. The test runner
-# skips Node-configured suites under `--firefox`/`--chrome` (exiting 0), so
-# browser runs must enable this: `wasm-pack test --headless --firefox
-# tests/wasm_runtime_tests --features browser`.
-browser = []
-
 [dependencies.thiserror]
 version = "2.0"
 default-features = false

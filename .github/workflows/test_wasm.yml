@@ -63,8 +63,12 @@ jobs:
         if: matrix.browser == 'chrome'
         uses: browser-actions/setup-chrome@v1
 
+      # The suite is configured for Node; without this override the runner
+      # skips it under --firefox/--chrome and exits 0.
       - name: Run runtime tests (${{ matrix.browser }})
-        run: wasm-pack test --headless --${{ matrix.browser }} tests/wasm_runtime_tests --features browser
+        env:
+          WASM_BINDGEN_USE_BROWSER: "1"
+        run: wasm-pack test --headless --${{ matrix.browser }} tests/wasm_runtime_tests
 
   ts-acceptance:
     runs-on: ubuntu-latest
