@@ -20,6 +20,22 @@ pub(crate) fn strip_wasm_bindgen(attrs: &[Attribute]) -> Vec<Attribute> {
         .collect()
 }
 
+/// A name written as a string literal (`"getCount"`) or a bare identifier
+/// (`getCount`), the two forms wasm-bindgen accepts for names.
+pub(crate) fn expr_as_name(expr: &syn::Expr) -> Option<String> {
+    if let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(s),
+        ..
+    }) = expr
+    {
+        return Some(s.value());
+    }
+    if let syn::Expr::Path(path) = expr {
+        return path.path.get_ident().map(ToString::to_string);
+    }
+    None
+}
+
 /// Extract the `js_name` value from `#[wasm_bindgen(js_name = ...)]` attributes.
 ///
 /// Accepts both forms wasm-bindgen accepts: a string literal
@@ -36,17 +52,8 @@ pub(crate) fn extract_js_name_from_attrs(attrs: &[Attribute]) -> Option<String> 
             for meta in &nested {
                 if let syn::Meta::NameValue(nv) = meta {
                     if nv.path.is_ident("js_name") {
-                        if let syn::Expr::Lit(syn::ExprLit {
-                            lit: syn::Lit::Str(s),
-                            ..
-                        }) = &nv.value
-                        {
-                            return Some(s.value());
-                        }
-                        if let syn::Expr::Path(path) = &nv.value {
-                            if let Some(ident) = path.path.get_ident() {
-                                return Some(ident.to_string());
-                            }
+                        if let Some(name) = expr_as_name(&nv.value) {
+                            return Some(name);
                         }
                     }
                 }

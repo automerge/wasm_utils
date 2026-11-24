@@ -95,3 +95,30 @@ fn async_borrowed_param_conforms() {
     fn assert_trait<T: Finder>() {}
     assert_trait::<WasmFinder>();
 }
+
+// Parameter patterns wasm-bindgen accepts (`mut v`, `_`) must not break the
+// witness, which forwards every parameter to the inherent method.
+#[js_trait(js_type = JsSetter)]
+pub trait Setter {
+    #[wasm_bindgen(js_name = "set")]
+    fn js_set(&self, value: u32, flag: bool) -> u32;
+}
+
+#[wasm_bindgen]
+pub struct WasmSetter;
+
+#[wasm_implements(Setter)]
+#[wasm_bindgen(js_class = "WasmSetter")]
+impl WasmSetter {
+    #[wasm_bindgen(js_name = "set")]
+    pub fn js_set(&self, mut value: u32, _: bool) -> u32 {
+        value += 1;
+        value
+    }
+}
+
+#[test]
+fn witness_forwards_any_parameter_pattern() {
+    fn assert_trait<T: Setter>() {}
+    assert_trait::<WasmSetter>();
+}

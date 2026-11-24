@@ -199,10 +199,10 @@
 //! }
 //! ```
 //!
-//! > **Note:** TypeScript does not have typed exceptions, so the error type
-//! > `E` does not appear in the generated TypeScript interface.
-//! > `Result<Uint8Array, js_sys::Error>` in async maps to
-//! > `Promise<Uint8Array>` in TS — the rejection type is implicit.
+//! _Note:_ TypeScript does not have typed exceptions, so the error type `E`
+//! does not appear in the generated TypeScript type.
+//! `Result<Uint8Array, js_sys::Error>` in async maps to `Promise<Uint8Array>`
+//! in TS; the rejection type is implicit.
 //!
 //! # Static Methods
 //!
@@ -214,29 +214,28 @@
 //!   that object;
 //! - with `module = "..."`, an export of that module.
 //!
-//! The generated TS leaves static methods out of the interface and declares
-//! them where they bind (`declare global { var create: ... }`, or inside a
-//! `namespace` for `js_namespace`). Module imports aren't declared, since the
-//! module ships its own types. A static method's `js_name` must be a JS
-//! identifier.
+//! In the generated TS, static methods are left out of the trait's type and
+//! collected in a separate `{Name}Statics` type, so the JS side can type the
+//! functions it provides (`const statics: StorageStatics = { ... }`).
 //!
 //! # TypeScript Output
 //!
-//! `#[js_trait]` emits a TS interface for the trait. It keeps the output
-//! valid TS:
+//! `#[js_trait]` emits a TS type for the trait, `export type Storage = { ... }`,
+//! and keeps it valid TS:
 //!
 //! - Parameter names that are reserved in TS get a trailing `_`
 //!   (`r#for` → `for_`, `new` → `new_`), and stay unique within a method.
 //!   Parameter names are documentation only, so this doesn't affect callers.
 //! - A method `js_name` that isn't a JS identifier is quoted
 //!   (`"my-method"(): number;`).
-//! - The interface name (`js_name` on `#[js_trait]`, or the trait name) must be
-//!   a JS identifier and not a reserved word or builtin type such as `string`;
+//! - The type name (`js_name` on `#[js_trait]`, or the trait name) must be a JS
+//!   identifier and not a reserved word or builtin type such as `string`;
 //!   otherwise it's a compile error.
 //!
-//! > **Note:** don't give the interface the same name as an exported class.
-//! > TypeScript merges an interface into a same-named class, so the class
-//! > would appear to have the interface's methods even if it doesn't.
+//! It's a type alias rather than an `interface` on purpose. TS silently merges
+//! an interface into a class of the same name, which would make an exported
+//! class appear to have the trait's methods. A type alias with a class's name
+//! is a `Duplicate identifier` error in `tsc` instead.
 
 //! # JS Method Name Checking
 //!
@@ -254,11 +253,10 @@
 //!               #[wasm_implements(Calc)] impl block
 //! ```
 //!
-//! > **Note:** `#[js_trait]` requires `#[wasm_bindgen(js_name = "...")]` on
-//! > every method — omitting it is a compile error. On the
-//! > `#[wasm_implements]` side, methods without `js_name` use their Rust
-//! > name, which will not match the expected interface — catching the
-//! > mismatch at compile time.
+//! _Note:_ `#[js_trait]` requires `#[wasm_bindgen(js_name = "...")]` on every
+//! method; omitting it is a compile error. On the `#[wasm_implements]` side,
+//! methods without `js_name` use their Rust name, which won't match the
+//! expected one, so the mismatch is caught at compile time.
 //!
 //! # Macro Parameters
 //!
@@ -267,7 +265,7 @@
 //! | Parameter | Required | Default    | Description                         |
 //! |-----------|----------|------------|-------------------------------------|
 //! | `js_type` | Yes      | —          | Rust ident for the generated extern type |
-//! | `js_name` | No       | Trait name | JS/TS interface name                |
+//! | `js_name` | No       | Trait name | TS type name                        |
 //!
 //! ## `#[wasm_implements]`
 //!
@@ -301,7 +299,7 @@ mod wasm_implements;
 /// Define a JS duck-typed interface as a Rust trait.
 ///
 /// Generates:
-/// 1. A `typescript_custom_section` with the TypeScript interface
+/// 1. A `typescript_custom_section` with the TypeScript type
 /// 2. An `extern "C"` block with `#[wasm_bindgen]` bindings
 /// 3. The Rust trait (with `#[wasm_bindgen]` attrs stripped)
 /// 4. An `impl Trait for ExternType` that delegates to the extern fns

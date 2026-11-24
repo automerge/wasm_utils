@@ -15,7 +15,7 @@ use syn::{ext::IdentExt, spanned::Spanned, ImplItem, ImplItemFn, ItemImpl, Path}
 
 use crate::shared::{
     attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
-    method::{arg_names, has_self_receiver, is_pub, to_rpitit_signature},
+    method::{has_self_receiver, is_pub, to_rpitit_signature, with_fresh_args},
     naming::{tag_method_js_name, tag_method_rust_ident},
 };
 
@@ -63,18 +63,16 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
     let witness_methods: Vec<TokenStream> = pub_methods
         .iter()
         .map(|method| {
-            let sig = &method.sig;
-            let method_name = &sig.ident;
+            let method_name = &method.sig.ident;
+            let (sig, arg_names) = with_fresh_args(&method.sig);
 
             // Transform to RPITIT if async
-            let witness_sig = to_rpitit_signature(sig);
+            let witness_sig = to_rpitit_signature(&sig);
 
             // Strip wasm_bindgen attrs
             let clean_attrs = strip_wasm_bindgen(&method.attrs);
 
-            let arg_names: Vec<_> = arg_names(sig);
-
-            let body: TokenStream = if has_self_receiver(sig) {
+            let body: TokenStream = if has_self_receiver(&sig) {
                 quote! { #self_ty::#method_name(self, #(#arg_names),*) }
             } else {
                 quote! { #self_ty::#method_name(#(#arg_names),*) }
@@ -292,9 +290,8 @@ mod tests {
         )?;
 
         assert!(
-            output.contains("WasmFoo :: js_put (self , value)")
-                || output.contains("WasmFoo :: js_put(self, value)")
-                || output.contains("WasmFoo::js_put(self, value)"),
+            output.contains("WasmFoo :: js_put (self , __arg0)"),
+            "Output: {output}"
         );
         Ok(())
     }
@@ -385,9 +382,8 @@ mod tests {
             .ok_or("must have witness")?
             .1;
         assert!(
-            witness_section.contains("WasmFoo :: js_create (name)")
-                || witness_section.contains("WasmFoo :: js_create(name)")
-                || witness_section.contains("WasmFoo::js_create(name)"),
+            witness_section.contains("WasmFoo :: js_create (__arg0)"),
+            "Witness: {witness_section}",
         );
         Ok(())
     }

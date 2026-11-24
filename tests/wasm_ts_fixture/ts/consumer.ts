@@ -7,7 +7,7 @@
 // rejected — if the generated types ever become too loose, those lines start
 // erroring (because the error they expect disappears) and the build fails.
 
-import { Counter, tryParse, type Edges, type Storage } from "../pkg/wasm_ts_fixture";
+import { Counter, tryParse, type Edges, type EdgesStatics, type Storage } from "../pkg/wasm_ts_fixture";
 
 // --- Exported class: Counter (with typescript_type round-trip) ---
 
@@ -65,16 +65,21 @@ const myEdges: Edges = {
 };
 void myEdges;
 
-// Static methods are not members: they bind to a global and a namespace.
-globalThis.makeEdges = (seed: number): number => seed;
-edgeTools.version = (): string => "1.0";
+// Static methods aren't members of the object; their shape is a separate
+// `EdgesStatics` type, whatever they bind to (here a global and a namespace).
+const edgeStatics: EdgesStatics = {
+  makeEdges: (seed: number): number => seed,
+  version: (): string => "1.0",
+};
+Object.assign(globalThis, { makeEdges: edgeStatics.makeEdges });
 
-// @ts-expect-error - static `makeEdges` is not a member of the interface
+// @ts-expect-error - static `makeEdges` is not a member of the instance type
 const _withStatic: Edges = { ...myEdges, makeEdges: (seed: number) => seed };
 void _withStatic;
 
-// @ts-expect-error - the global `makeEdges` takes a number
-globalThis.makeEdges = (seed: string): string => seed;
+// @ts-expect-error - `makeEdges` takes a number
+const _badStatics: EdgesStatics = { ...edgeStatics, makeEdges: (seed: string) => seed };
+void _badStatics;
 
 // --- Exported function returning a number ---
 

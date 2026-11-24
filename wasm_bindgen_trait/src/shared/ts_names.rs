@@ -10,6 +10,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use proc_macro2::Span;
 use syn::{ext::IdentExt, Ident};
 
 /// Words that can't be a binding name (parameter, `var`, namespace) in a
@@ -134,30 +135,35 @@ pub(crate) fn ts_member_name(js_name: &str) -> String {
     }
 }
 
-/// Why `name` can't be a TS interface name, if it can't.
-pub(crate) fn interface_name_error(name: &str) -> Option<String> {
-    if !is_js_identifier(name) {
-        Some(format!(
-            "`{name}` is not a valid TypeScript interface name (it must be a JS identifier)"
-        ))
-    } else if is_reserved_binding(name) || RESERVED_TYPE_NAMES.binary_search(&name).is_ok() {
-        Some(format!(
-            "`{name}` is reserved in TypeScript and can't name an interface"
-        ))
-    } else {
-        None
-    }
-}
+/// A name that can be declared as a TypeScript type.
+///
+/// Constructed only by [`TsTypeName::parse`], so holding one proves the name
+/// is a JS identifier and not a reserved word or builtin type like `string`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TsTypeName(String);
 
-/// Why `name` can't be the global binding a static method is declared as.
-pub(crate) fn binding_name_error(name: &str) -> Option<String> {
-    if !is_js_identifier(name) || is_reserved_binding(name) {
-        Some(format!(
-            "static js_trait methods bind to a JS global, so the JS name `{name}` must be \
-             a non-reserved JS identifier"
-        ))
-    } else {
-        None
+impl TsTypeName {
+    /// Validate `name` as a TS type name, reporting errors at `span`.
+    pub(crate) fn parse(name: String, span: Span) -> syn::Result<Self> {
+        if !is_js_identifier(&name) {
+            return Err(syn::Error::new(
+                span,
+                format!(
+                    "`{name}` is not a valid TypeScript type name (it must be a JS identifier)"
+                ),
+            ));
+        }
+        if is_reserved_binding(&name) || RESERVED_TYPE_NAMES.binary_search(&name.as_str()).is_ok() {
+            return Err(syn::Error::new(
+                span,
+                format!("`{name}` is reserved in TypeScript and can't name a type"),
+            ));
+        }
+        Ok(Self(name))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -214,11 +220,18 @@ mod tests {
     }
 
     #[test]
-    fn interface_names() {
-        assert_eq!(interface_name_error("Widget"), None);
-        assert!(interface_name_error("Odd-Interface").is_some());
-        assert!(interface_name_error("class").is_some());
-        assert!(interface_name_error("string").is_some());
+    fn type_names() {
+        let parse = |name: &str| TsTypeName::parse(name.to_string(), Span::call_site());
+        assert_eq!(
+            parse("Widget")
+                .map(|n| n.as_str().to_string())
+                .ok()
+                .as_deref(),
+            Some("Widget")
+        );
+        assert!(parse("Odd-Interface").is_err());
+        assert!(parse("class").is_err());
+        assert!(parse("string").is_err());
     }
 
     /// For any argument list, the TS names are pairwise distinct, never

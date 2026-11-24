@@ -22,10 +22,10 @@ use syn::{
 };
 
 use crate::shared::{
-    attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
-    method::{arg_names, has_self_receiver, to_rpitit_signature},
+    attrs::{expr_as_name, extract_js_name_from_attrs, strip_wasm_bindgen},
+    method::{has_self_receiver, to_rpitit_signature, with_fresh_args},
     naming::extern_fn_ident,
-    ts_names::{binding_name_error, interface_name_error, ts_member_name, ts_param_names},
+    ts_names::{ts_member_name, ts_param_names, TsTypeName},
     ts_types::{async_return_to_ts, rust_type_to_ts, sync_return_to_ts},
 };
 
@@ -33,14 +33,14 @@ use crate::shared::{
 pub(crate) struct JsTraitArgs {
     /// Required: Rust ident for the generated extern type.
     pub js_type: Ident,
-    /// Optional: JS/TS interface name. Defaults to the trait name.
-    pub js_name: Option<String>,
+    /// Optional: TS type name. Defaults to the trait name.
+    pub js_name: Option<TsTypeName>,
 }
 
 impl Parse for JsTraitArgs {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut js_type: Option<Ident> = None;
-        let mut js_name: Option<String> = None;
+        let mut js_name: Option<TsTypeName> = None;
 
         let pairs = Punctuated::<syn::MetaNameValue, Token![,]>::parse_terminated(input)?;
         for pair in pairs {
@@ -69,11 +69,13 @@ impl Parse for JsTraitArgs {
                     }
                 }
                 "js_name" => {
-                    let parsed = parse_js_name_value(&pair.value)?;
-                    if let Some(msg) = interface_name_error(&parsed) {
-                        return Err(syn::Error::new(pair.value.span(), msg));
-                    }
-                    js_name = Some(parsed);
+                    let name = expr_as_name(&pair.value).ok_or_else(|| {
+                        syn::Error::new(
+                            pair.value.span(),
+                            "js_name must be an identifier or string literal",
+                        )
+                    })?;
+                    js_name = Some(TsTypeName::parse(name, pair.value.span())?);
                 }
                 other => {
                     return Err(syn::Error::new(
@@ -90,28 +92,6 @@ impl Parse for JsTraitArgs {
 
         Ok(Self { js_type, js_name })
     }
-}
-
-/// The value of `js_name = ...`: a bare identifier or a string literal.
-fn parse_js_name_value(value: &syn::Expr) -> syn::Result<String> {
-    if let syn::Expr::Path(expr_path) = value {
-        return expr_path
-            .path
-            .get_ident()
-            .map(ToString::to_string)
-            .ok_or_else(|| syn::Error::new(value.span(), "js_name must be a simple identifier"));
-    }
-    if let syn::Expr::Lit(syn::ExprLit {
-        lit: syn::Lit::Str(s),
-        ..
-    }) = value
-    {
-        return Ok(s.value());
-    }
-    Err(syn::Error::new(
-        value.span(),
-        "js_name must be an identifier or string literal",
-    ))
 }
 
 /// Parsed info about a single trait method.
@@ -167,10 +147,13 @@ pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenSt
     let trait_name = &trait_def.ident;
     let trait_vis = &trait_def.vis;
     let js_type_ident = &args.js_type;
-    let args_js_name_is_default = args.js_name.is_none();
-    let ts_interface_name = args
-        .js_name
-        .unwrap_or_else(|| trait_name.unraw().to_string());
+    let ts_name = match args.js_name {
+        Some(name) => name,
+        None => match TsTypeName::parse(trait_name.unraw().to_string(), trait_name.span()) {
+            Ok(name) => name,
+            Err(err) => return err.to_compile_error(),
+        },
+    };
 
     if let Some(err) = validate_trait(trait_def) {
         return err;
@@ -185,17 +168,8 @@ pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenSt
         return err;
     }
 
-    if args_js_name_is_default {
-        if let Some(msg) = interface_name_error(&ts_interface_name) {
-            return syn::Error::new(trait_name.span(), msg).to_compile_error();
-        }
-    }
-
-    let ts_section = match gen_ts_section(trait_name, &ts_interface_name, &methods) {
-        Ok(tokens) => tokens,
-        Err(err) => return err.to_compile_error(),
-    };
-    let extern_block = gen_extern_block(trait_vis, js_type_ident, &ts_interface_name, &methods);
+    let ts_section = gen_ts_section(trait_name, &ts_name, &methods);
+    let extern_block = gen_extern_block(trait_vis, js_type_ident, ts_name.as_str(), &methods);
     let trait_output = gen_trait_def(trait_def, &methods);
     let impl_block = gen_impl_block(trait_name, js_type_ident, &methods);
 
@@ -209,6 +183,21 @@ pub(crate) fn js_trait_impl(args: JsTraitArgs, trait_def: &ItemTrait) -> TokenSt
 
 /// Validate that the trait has no generics, associated types, or associated constants.
 fn validate_trait(trait_def: &ItemTrait) -> Option<TokenStream> {
+    // The generated extern impl and `#[wasm_implements]` witness are plain
+    // `impl`s, so these can't be honored.
+    if let Some(unsafety) = &trait_def.unsafety {
+        return Some(
+            syn::Error::new(unsafety.span(), "js_trait does not support unsafe traits")
+                .to_compile_error(),
+        );
+    }
+    if let Some(auto) = &trait_def.auto_token {
+        return Some(
+            syn::Error::new(auto.span(), "js_trait does not support auto traits")
+                .to_compile_error(),
+        );
+    }
+
     if !trait_def.generics.params.is_empty() {
         return Some(
             syn::Error::new(
@@ -233,7 +222,23 @@ fn validate_trait(trait_def: &ItemTrait) -> Option<TokenStream> {
                         .to_compile_error(),
                 );
             }
-            TraitItem::Fn(_) | TraitItem::Macro(_) | TraitItem::Verbatim(_) | _ => {}
+            TraitItem::Macro(m) => {
+                return Some(
+                    syn::Error::new(
+                        m.span(),
+                        "js_trait does not support macro calls in the trait body \
+                         (expand them to methods first)",
+                    )
+                    .to_compile_error(),
+                );
+            }
+            TraitItem::Verbatim(v) => {
+                return Some(
+                    syn::Error::new(v.span(), "js_trait does not support this trait item")
+                        .to_compile_error(),
+                );
+            }
+            TraitItem::Fn(_) | _ => {}
         }
     }
 
@@ -401,57 +406,44 @@ fn validate_methods(methods: &[MethodInfo<'_>]) -> Option<TokenStream> {
 /// Generate the `typescript_custom_section` constant.
 fn gen_ts_section(
     trait_name: &Ident,
-    ts_interface_name: &str,
+    ts_name: &TsTypeName,
     methods: &[MethodInfo<'_>],
-) -> syn::Result<TokenStream> {
-    let mut members: Vec<String> = Vec::new();
-    let mut globals: Vec<String> = Vec::new();
-    let mut namespaced: Vec<(String, String)> = Vec::new();
-
-    for mi in methods {
+) -> TokenStream {
+    let member = |mi: &MethodInfo<'_>| {
         let (params, ret) = ts_signature(mi);
+        format!("    {}({params}): {ret};", ts_member_name(&mi.js_name))
+    };
+    let (instance, statics): (Vec<_>, Vec<_>) = methods.iter().partition(|mi| mi.has_self);
 
-        if mi.has_self {
-            let name = ts_member_name(&mi.js_name);
-            members.push(format!("    {name}({params}): {ret};"));
-            continue;
-        }
-
-        // A static method binds to a JS function, not to a member of the
-        // interface: declare it where wasm-bindgen will look it up.
-        let namespace = match static_binding(mi.method) {
-            StaticBinding::Module => continue,
-            StaticBinding::Global => None,
-            StaticBinding::Namespace(path) => Some(path),
-        };
-        if let Some(msg) = binding_name_error(&mi.js_name) {
-            return Err(syn::Error::new(mi.method.sig.ident.span(), msg));
-        }
-        let decl = format!("var {}: ({params}) => {ret};", mi.js_name);
-        match namespace {
-            Some(path) => namespaced.push((path, decl)),
-            None => globals.push(decl),
-        }
-    }
-
+    // A type alias rather than an interface: TS merges an interface into a
+    // same-named class, silently giving the class methods it doesn't have,
+    // while a type alias with a class's name is a `Duplicate identifier` error.
     let mut ts = format!(
-        "export interface {ts_interface_name} {{\n{}\n}}",
-        members.join("\n")
+        "export type {ts_name} = {{\n{}\n}};",
+        instance
+            .iter()
+            .map(|mi| member(mi))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ts_name = ts_name.as_str(),
     );
-    if !globals.is_empty() || !namespaced.is_empty() {
-        ts.push_str("\ndeclare global {");
-        for decl in &globals {
-            ts.push_str("\n    ");
-            ts.push_str(decl);
-        }
-        for (path, decl) in &namespaced {
-            ts.push_str("\n    namespace ");
-            ts.push_str(path);
-            ts.push_str(" {\n        ");
-            ts.push_str(decl);
-            ts.push_str("\n    }");
-        }
-        ts.push_str("\n}");
+
+    // Static methods aren't members of the JS object; they bind to a JS
+    // function (a global, a `js_namespace` property, or a module export).
+    // Their shape gets its own type rather than a global declaration, which
+    // could clash with existing globals or the module layout.
+    if !statics.is_empty() {
+        ts.push_str("\nexport type ");
+        ts.push_str(ts_name.as_str());
+        ts.push_str("Statics = {\n");
+        ts.push_str(
+            &statics
+                .iter()
+                .map(|mi| member(mi))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        ts.push_str("\n};");
     }
 
     let ts_const_name = Ident::new(
@@ -462,10 +454,10 @@ fn gen_ts_section(
         trait_name.span(),
     );
 
-    Ok(quote! {
+    quote! {
         #[::wasm_bindgen::prelude::wasm_bindgen(typescript_custom_section)]
         const #ts_const_name: &str = #ts;
-    })
+    }
 }
 
 /// A method's TS parameter list and return type.
@@ -509,57 +501,6 @@ fn ts_signature(mi: &MethodInfo<'_>) -> (String, String) {
     (params, ret)
 }
 
-/// Where wasm-bindgen looks up a static (no-receiver) method's JS function.
-enum StaticBinding {
-    /// A global function (no namespace attrs).
-    Global,
-    /// `js_namespace = ...` or `static_method_of = ...`: a property of that
-    /// object, written as a dotted TS namespace path.
-    Namespace(String),
-    /// `module = "..."` / `raw_module = "..."`: an export of a JS module,
-    /// which carries its own types, so nothing is declared here.
-    Module,
-}
-
-fn static_binding(method: &TraitItemFn) -> StaticBinding {
-    for meta in collect_wb_meta(method) {
-        let syn::Meta::NameValue(nv) = meta else {
-            continue;
-        };
-        if nv.path.is_ident("module") || nv.path.is_ident("raw_module") {
-            return StaticBinding::Module;
-        }
-        if nv.path.is_ident("js_namespace") || nv.path.is_ident("static_method_of") {
-            if let Some(path) = namespace_path(&nv.value) {
-                return StaticBinding::Namespace(path);
-            }
-        }
-    }
-    StaticBinding::Global
-}
-
-/// `ns`, `"ns"`, or `["a", "b"]` as a dotted path (`a.b`).
-fn namespace_path(value: &syn::Expr) -> Option<String> {
-    let segment = |expr: &syn::Expr| -> Option<String> {
-        if let syn::Expr::Lit(syn::ExprLit {
-            lit: syn::Lit::Str(s),
-            ..
-        }) = expr
-        {
-            return Some(s.value());
-        }
-        if let syn::Expr::Path(p) = expr {
-            return p.path.get_ident().map(ToString::to_string);
-        }
-        None
-    };
-    if let syn::Expr::Array(array) = value {
-        let parts: Option<Vec<String>> = array.elems.iter().map(segment).collect();
-        return parts.map(|parts| parts.join("."));
-    }
-    segment(value)
-}
-
 /// Generate the `extern "C"` block with `wasm_bindgen` bindings.
 fn gen_extern_block(
     trait_vis: &syn::Visibility,
@@ -583,9 +524,8 @@ fn gen_extern_block(
                 wb_metas.push(quote!(#meta));
             }
 
-            let params: Vec<TokenStream> = mi
-                .method
-                .sig
+            let (sig, _) = with_fresh_args(&mi.method.sig);
+            let params: Vec<TokenStream> = sig
                 .inputs
                 .iter()
                 .map(|arg| match arg {
@@ -659,9 +599,11 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         .map(|mi| {
             let js_name = &mi.js_name;
             let rust_name = mi.method.sig.ident.unraw().to_string();
+            // `{:?}` renders a Rust string literal, so the suggested
+            // attribute stays valid Rust even if the name has `"` or `\`.
             let message = format!(
-                "`{trait_display}::{rust_name}` must be exported to JS as \"{js_name}\"; \
-                 add #[wasm_bindgen(js_name = \"{js_name}\")] to it in the \
+                "`{trait_display}::{rust_name}` must be exported to JS as {js_name:?}; \
+                 add #[wasm_bindgen(js_name = {js_name:?})] to it in the \
                  #[wasm_implements({trait_display})] impl block"
             );
             quote!((#rust_name, #js_name, #message))
@@ -682,11 +624,13 @@ fn gen_trait_def(trait_def: &ItemTrait, methods: &[MethodInfo<'_>]) -> TokenStre
         quote!()
     };
 
+    let where_clause = &trait_def.generics.where_clause;
+
     // Without supertraits, `colon_token` is `None` and both print nothing.
     quote! {
         #(#trait_attrs)*
         #async_allow
-        #trait_vis trait #trait_name #colon_token #trait_supertraits {
+        #trait_vis trait #trait_name #colon_token #trait_supertraits #where_clause {
             #[doc(hidden)]
             const __JS_METHODS: &[(&str, &str, &str)] = &[#(#method_rows),*];
 
@@ -706,8 +650,8 @@ fn gen_impl_block(
         .map(|mi| {
             let method_name = &mi.method.sig.ident;
             let extern_name = extern_fn_ident(method_name);
-            let rpitit_sig = to_rpitit_signature(&mi.method.sig);
-            let arg_names: Vec<_> = arg_names(&mi.method.sig);
+            let (sig, arg_names) = with_fresh_args(&mi.method.sig);
+            let rpitit_sig = to_rpitit_signature(&sig);
 
             if mi.is_async {
                 gen_async_impl_method(mi, &extern_name, &rpitit_sig, &arg_names)
@@ -741,7 +685,7 @@ fn gen_async_impl_method(
     mi: &MethodInfo<'_>,
     extern_name: &Ident,
     rpitit_sig: &syn::Signature,
-    arg_names: &[TokenStream],
+    arg_names: &[Ident],
 ) -> TokenStream {
     let extern_call = if mi.has_self {
         quote! { self.#extern_name(#(#arg_names),*) }
@@ -853,7 +797,7 @@ mod tests {
         )?;
 
         assert!(
-            output.contains("export interface MyTransport"),
+            output.contains("export type MyTransport = {"),
             "must use js_name override for TS interface.\nOutput: {output}",
         );
         assert!(
@@ -971,7 +915,7 @@ mod tests {
         )?;
 
         assert!(
-            output.contains("export interface Kind {"),
+            output.contains("export type Kind = {"),
             "TS interface name must not contain `r#`.\nOutput: {output}",
         );
         assert!(
@@ -1165,7 +1109,7 @@ mod tests {
         // -- TS section --
         let ts = between(&output, "__WASM_TRAIT_TS_COUNTER", "extern \"C\"");
         assert!(
-            ts.contains("export interface Counter"),
+            ts.contains("export type Counter = {"),
             "TS must declare interface Counter.\nTS: {ts}",
         );
         assert!(
@@ -1228,7 +1172,7 @@ mod tests {
             "impl must delegate via self.method() syntax, not free fn.\nImpl: {imp}",
         );
         assert!(
-            imp.contains("self . __wasm_trait_set_count (value)"),
+            imp.contains("self . __wasm_trait_set_count (__arg0)"),
             "impl must delegate set_count via self.method() syntax.\nImpl: {imp}",
         );
         Ok(())
@@ -1302,7 +1246,7 @@ mod tests {
             "impl Err arm must use unchecked_into.\nImpl: {imp}",
         );
         assert!(
-            imp.contains("self . __wasm_trait_js_save (data)"),
+            imp.contains("self . __wasm_trait_js_save (__arg0)"),
             "impl must call extern fn via self.method() syntax.\nImpl: {imp}",
         );
         Ok(())
@@ -1394,7 +1338,7 @@ mod tests {
             "static impl must not call via self.\nImpl: {imp}",
         );
         assert!(
-            imp.contains("__wasm_trait_create (name)"),
+            imp.contains("__wasm_trait_create (__arg0)"),
             "static impl must call free fn directly.\nImpl: {imp}",
         );
         Ok(())
@@ -1428,13 +1372,16 @@ mod tests {
             ts.contains("fetch(key: number): Promise<Uint8Array>;"),
             "TS must have async fetch() method.\nTS: {ts}",
         );
+        let (instance_type, _) = ts
+            .split_once("ServiceStatics")
+            .ok_or("must have a statics type")?;
         assert!(
-            !ts.contains("    create("),
-            "a static method is not a member of the interface.\nTS: {ts}",
+            !instance_type.contains("create("),
+            "a static method is not a member of the instance type.\nTS: {ts}",
         );
         assert!(
-            ts.contains(r"declare global {\n    var create: (label: string) => boolean;\n}"),
-            "a static method is declared as the global it binds to.\nTS: {ts}",
+            ts.contains(r"export type ServiceStatics = {\n    create(label: string): boolean;\n};"),
+            "a static method goes in the `...Statics` type.\nTS: {ts}",
         );
 
         // -- Extern block structure --
@@ -1453,7 +1400,7 @@ mod tests {
         );
         assert!(
             ext.contains(
-                "__wasm_trait_fetch (this : & JsService , key : u32) -> :: js_sys :: Promise"
+                "__wasm_trait_fetch (this : & JsService , __arg0 : u32) -> :: js_sys :: Promise"
             ),
             "fetch extern must return Promise.\nExtern: {ext}",
         );
@@ -1496,7 +1443,7 @@ mod tests {
         );
         // async instance uses JsFuture + unchecked_into
         assert!(
-            imp.contains("self . __wasm_trait_fetch (key)"),
+            imp.contains("self . __wasm_trait_fetch (__arg0)"),
             "async instance impl must use self.method().\nImpl: {imp}",
         );
         assert!(
@@ -1509,7 +1456,7 @@ mod tests {
         );
         // static delegates via free fn
         assert!(
-            imp.contains("{ __wasm_trait_create (label) }"),
+            imp.contains("{ __wasm_trait_create (__arg0) }"),
             "static impl must call free fn.\nImpl: {imp}",
         );
         Ok(())
@@ -1690,9 +1637,20 @@ mod tests {
                 };
                 let tokens = if *trailing { quote!(#pairs,) } else { pairs };
 
-                let args = parse_args(tokens).expect("valid args must parse");
+                let parsed = parse_args(tokens);
+                if TsTypeName::parse(name_str.clone(), proc_macro2::Span::call_site()).is_err() {
+                    assert!(
+                        parsed.is_err(),
+                        "reserved type name {name_str} must be rejected"
+                    );
+                    return;
+                }
+                let args = parsed.expect("valid args must parse");
                 assert_eq!(args.js_type, ty);
-                assert_eq!(args.js_name.as_deref(), Some(name_str.as_str()));
+                assert_eq!(
+                    args.js_name.as_ref().map(TsTypeName::as_str),
+                    Some(name_str.as_str())
+                );
             });
     }
 
@@ -1739,9 +1697,7 @@ mod tests {
         let err = parse_args(quote!(js_type = JsOdd, js_name = "Odd-Interface"))
             .err()
             .expect("a non-identifier interface name must be rejected");
-        assert!(err
-            .to_string()
-            .contains("not a valid TypeScript interface name"));
+        assert!(err.to_string().contains("not a valid TypeScript type name"));
     }
 
     #[test]
@@ -1772,58 +1728,143 @@ mod tests {
     }
 
     #[test]
-    fn static_method_in_namespace_is_declared_there() -> TestResult {
+    fn statics_get_their_own_type_whatever_they_bind_to() -> TestResult {
         let output = expand(
             quote!(js_type = JsFactory),
             quote! {
                 pub trait Factory {
                     #[wasm_bindgen(js_namespace = ["app", "factory"], js_name = "make")]
                     fn js_make(name: String) -> u32;
+
+                    #[wasm_bindgen(module = "/factory.js", js_name = "make-it")]
+                    fn js_make_it() -> u32;
                 }
             },
         )?;
 
         assert!(
             output.contains(
-                r"declare global {\n    namespace app.factory {\n        var make: (name: string) => number;\n    }\n}"
+                r#"export type FactoryStatics = {\n    make(name: string): number;\n    \"make-it\"(): number;\n};"#
             ),
+            "Output: {output}",
+        );
+        assert!(!output.contains("declare global"), "Output: {output}");
+        Ok(())
+    }
+
+    #[test]
+    fn no_statics_type_without_static_methods() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "go")]
+                    fn js_go(&self);
+                }
+            },
+        )?;
+
+        assert!(!output.contains("FooStatics"), "Output: {output}");
+        Ok(())
+    }
+
+    #[test]
+    fn mismatch_message_suggests_valid_rust_for_any_js_name() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "a\"b\\c")]
+                    fn js_go(&self);
+                }
+            },
+        )?;
+
+        // The message is itself a string literal in the output, so its own
+        // quotes and backslashes are escaped once more.
+        assert!(
+            output.contains(r#"add #[wasm_bindgen(js_name = \"a\\\"b\\\\c\")]"#),
             "Output: {output}",
         );
         Ok(())
     }
 
     #[test]
-    fn static_method_from_module_is_not_declared() -> TestResult {
+    fn trait_where_clause_is_kept() -> TestResult {
         let output = expand(
-            quote!(js_type = JsFactory),
+            quote!(js_type = JsFoo),
             quote! {
-                pub trait Factory {
-                    #[wasm_bindgen(module = "/factory.js", js_name = "make")]
-                    fn js_make(name: String) -> u32;
-                }
-            },
-        )?;
-
-        assert!(!output.contains("declare global"), "Output: {output}");
-        assert!(!output.contains("make("), "Output: {output}");
-        Ok(())
-    }
-
-    #[test]
-    fn error_on_static_method_with_non_identifier_js_name() -> TestResult {
-        let output = expand(
-            quote!(js_type = JsFactory),
-            quote! {
-                pub trait Factory {
-                    #[wasm_bindgen(js_name = "make-it")]
-                    fn js_make(name: String) -> u32;
+                pub trait Foo where Self: Sized {
+                    #[wasm_bindgen(js_name = "go")]
+                    fn js_go(&self);
                 }
             },
         )?;
 
         assert!(
-            output.contains("must be a non-reserved JS identifier"),
+            output.contains("pub trait Foo where Self : Sized {"),
             "Output: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_unsafe_trait() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub unsafe trait Foo {
+                    #[wasm_bindgen(js_name = "go")]
+                    fn js_go(&self);
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("js_trait does not support unsafe traits"),
+            "Output: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_macro_in_trait_body() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    my_methods!();
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("does not support macro calls"),
+            "Output: {output}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn any_parameter_pattern_is_forwarded() -> TestResult {
+        let output = expand(
+            quote!(js_type = JsFoo),
+            quote! {
+                pub trait Foo {
+                    #[wasm_bindgen(js_name = "set")]
+                    fn js_set(&self, mut value: u32);
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("fn __wasm_trait_js_set (this : & JsFoo , __arg0 : u32)")
+                && output.contains("self . __wasm_trait_js_set (__arg0)"),
+            "Output: {output}",
+        );
+        assert!(
+            output.contains("set(value: number): void;"),
+            "TS keeps the user's name"
         );
         Ok(())
     }
