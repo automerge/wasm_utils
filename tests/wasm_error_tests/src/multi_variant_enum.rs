@@ -3,13 +3,13 @@
 use thiserror::Error;
 use wasm_bindgen_error::WasmError;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error)]
 #[error("network timeout after {ms}ms")]
 pub struct TimeoutError {
     ms: u64,
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error)]
 #[error("permission denied for resource `{resource}`")]
 pub struct PermissionError {
     resource: &'static str,
@@ -18,7 +18,7 @@ pub struct PermissionError {
 /// An enum collecting multiple failure modes under one JS error name.
 ///
 /// JS sees `"ConnectError"` (Wasm prefix stripped).
-#[derive(Debug, Error, WasmError)]
+#[derive(Clone, Copy, Debug, Error, WasmError)]
 pub enum WasmConnectError {
     #[error("timeout: {0}")]
     Timeout(#[from] TimeoutError),

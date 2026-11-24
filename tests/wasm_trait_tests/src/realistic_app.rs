@@ -15,6 +15,8 @@
     unreachable_pub
 )]
 
+use core::cell::RefCell;
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_trait::{js_trait, wasm_implements};
 
@@ -45,29 +47,60 @@ pub trait Auth {
 }
 
 // Rust-exported in-memory storage implementing DocStorage.
+#[derive(Debug, Default)]
 #[wasm_bindgen]
-pub struct WasmInMemoryDocStorage;
+pub struct WasmInMemoryDocStorage {
+    docs: RefCell<Vec<(JsValue, JsValue)>>,
+}
 
 #[wasm_implements(DocStorage)]
 #[wasm_bindgen(js_class = "WasmInMemoryDocStorage")]
 impl WasmInMemoryDocStorage {
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "saveDocument")]
-    pub async fn js_save_document(&self, _id: JsValue, _content: JsValue) -> Result<(), JsValue> {
+    pub async fn js_save_document(&self, id: JsValue, content: JsValue) -> Result<(), JsValue> {
+        self.docs.borrow_mut().push((id, content));
         Ok(())
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "loadDocument")]
-    pub async fn js_load_document(&self, _id: JsValue) -> Result<JsValue, JsValue> {
-        Ok(JsValue::NULL)
+    pub async fn js_load_document(&self, id: JsValue) -> Result<JsValue, JsValue> {
+        self.docs
+            .borrow()
+            .iter()
+            .find(|(doc_id, _)| *doc_id == id)
+            .map(|(_, content)| content.clone())
+            .ok_or_else(|| JsValue::from_str("not found"))
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "listDocuments")]
     pub async fn js_list_documents(&self) -> Result<js_sys::Array, JsValue> {
-        Ok(js_sys::Array::new())
+        Ok(self
+            .docs
+            .borrow()
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect())
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "deleteDocument")]
-    pub async fn js_delete_document(&self, _id: JsValue) -> Result<(), JsValue> {
+    pub async fn js_delete_document(&self, id: JsValue) -> Result<(), JsValue> {
+        self.docs.borrow_mut().retain(|(doc_id, _)| *doc_id != id);
         Ok(())
     }
 }
@@ -76,12 +109,12 @@ impl WasmInMemoryDocStorage {
 
 fn save_if_permitted<S: DocStorage, A: Auth>(
     _storage: &S,
-    _auth: &A,
+    auth: &A,
     _doc_id: JsValue,
     _content: JsValue,
 ) {
-    let _user = _auth.js_current_user();
-    let _allowed = _auth.js_has_permission(JsValue::NULL, JsValue::NULL);
+    let _user = auth.js_current_user();
+    let _allowed = auth.js_has_permission(JsValue::NULL, JsValue::NULL);
 }
 
 async fn load_document_generic<S: DocStorage>(

@@ -9,3 +9,6 @@ js-sys.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 wasm_bindgen_trait = { path = "../../wasm_bindgen_trait" }
+
+[lints]
+workspace = true

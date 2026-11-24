@@ -7,13 +7,13 @@ use thiserror::Error;
 use wasm_bindgen_error::WasmError;
 
 /// A domain error from an inner library.
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error)]
 #[error("hydration failed: missing field `{field}`")]
 pub struct HydrationError {
     field: &'static str,
 }
 
-/// Wasm wrapper — strips "Wasm" prefix, so JS sees "HydrationError".
-#[derive(Debug, Error, WasmError)]
+/// Wasm wrapper — strips the `Wasm` prefix, so JS sees `HydrationError`.
+#[derive(Clone, Copy, Debug, Error, WasmError)]
 #[error(transparent)]
 pub struct WasmHydrationError(#[from] HydrationError);

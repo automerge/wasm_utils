@@ -11,7 +11,8 @@
 //! The source doc comments keep `ignore` markers so the examples still
 //! render in `rustdoc`.
 
-use core::future::Future;
+use core::{cell::RefCell, future::Future};
+use std::collections::BTreeMap;
 
 #[allow(unused_imports)]
 use wasm_bindgen::prelude::*;
@@ -48,33 +49,48 @@ fn accept_storage(s: &JsStorage) {
 }
 
 #[allow(dead_code)]
-async fn use_storage(s: &impl Storage) {
-    s.js_save("key".into(), JsValue::from_str("value"))
-        .await
-        .expect("save failed");
+async fn use_storage(s: &impl Storage) -> Result<(), JsValue> {
+    s.js_save("key".into(), JsValue::from_str("value")).await
 }
 
 // Doc example: "Quick Start §3 — wasm_implements"
 
+#[derive(Debug, Default)]
 #[wasm_bindgen]
-pub struct WasmMemoryStorage;
+pub struct WasmMemoryStorage {
+    entries: RefCell<BTreeMap<String, JsValue>>,
+}
 
 #[wasm_implements(Storage)]
 #[wasm_bindgen(js_class = "WasmMemoryStorage")]
 impl WasmMemoryStorage {
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "save")]
-    pub async fn js_save(&self, _key: String, _value: JsValue) -> Result<(), JsValue> {
+    pub async fn js_save(&self, key: String, value: JsValue) -> Result<(), JsValue> {
+        self.entries.borrow_mut().insert(key, value);
         Ok(())
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "load")]
-    pub async fn js_load(&self, _key: String) -> Result<JsValue, JsValue> {
-        Ok(JsValue::UNDEFINED)
+    pub async fn js_load(&self, key: String) -> Result<JsValue, JsValue> {
+        Ok(self
+            .entries
+            .borrow()
+            .get(&key)
+            .cloned()
+            .unwrap_or(JsValue::UNDEFINED))
     }
 
     #[wasm_bindgen(js_name = "name")]
     pub fn js_name(&self) -> String {
-        "memory".into()
+        format!("memory ({} entries)", self.entries.borrow().len())
     }
 }
 
@@ -98,7 +114,7 @@ struct DomainError(String);
 
 impl DomainError {
     #[allow(dead_code)]
-    fn from_js(val: JsValue) -> Self {
+    fn from_js(val: &JsValue) -> Self {
         Self(val.as_string().unwrap_or_else(|| "unknown error".into()))
     }
 }
@@ -108,14 +124,14 @@ impl DocumentStore for JsStorage {
         let js_value = js_sys::Uint8Array::from(content).into();
         self.js_save(id.into(), js_value)
             .await
-            .map_err(DomainError::from_js)
+            .map_err(|err| DomainError::from_js(&err))
     }
 
     async fn load(&self, id: &str) -> Result<Vec<u8>, DomainError> {
         let result = self
             .js_load(id.into())
             .await
-            .map_err(DomainError::from_js)?;
+            .map_err(|err| DomainError::from_js(&err))?;
 
         let array = js_sys::Uint8Array::new(&result);
         Ok(array.to_vec())

@@ -43,10 +43,8 @@
 //! }
 //!
 //! // Or use the trait generically:
-//! async fn use_storage(s: &impl Storage) {
-//!     s.js_save("key".into(), JsValue::from_str("value"))
-//!         .await
-//!         .expect("save failed");
+//! async fn use_storage(s: &impl Storage) -> Result<(), JsValue> {
+//!     s.js_save("key".into(), JsValue::from_str("value")).await
 //! }
 //! ```
 //!
@@ -107,13 +105,13 @@
 //!         // Call the js_trait-generated method
 //!         self.js_save(id.into(), js_value)
 //!             .await
-//!             .map_err(MyError::from_js)
+//!             .map_err(|err| MyError::from_js(&err))
 //!     }
 //!
 //!     async fn load(&self, id: &str) -> Result<Vec<u8>, MyError> {
 //!         let result = self.js_load(id.into())
 //!             .await
-//!             .map_err(MyError::from_js)?;
+//!             .map_err(|err| MyError::from_js(&err))?;
 //!
 //!         // Convert JS types → Rust types
 //!         let array = Uint8Array::new(&result);
@@ -125,7 +123,7 @@
 //! struct MyError(String);
 //!
 //! impl MyError {
-//!     fn from_js(val: JsValue) -> Self {
+//!     fn from_js(val: &JsValue) -> Self {
 //!         Self(val.as_string().unwrap_or_else(|| "unknown error".into()))
 //!     }
 //! }

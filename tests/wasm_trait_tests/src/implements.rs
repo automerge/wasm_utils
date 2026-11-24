@@ -1,5 +1,7 @@
 //! Test: `#[wasm_implements]` generates valid compile-time witness.
 
+use core::cell::RefCell;
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_trait::{js_trait, wasm_implements};
 
@@ -17,23 +19,43 @@ pub trait KvStore {
 }
 
 // Rust struct that implements the interface
+#[derive(Debug, Default)]
 #[wasm_bindgen]
-pub struct WasmMemoryKvStore;
+pub struct WasmMemoryKvStore {
+    entries: RefCell<Vec<(JsValue, JsValue)>>,
+}
 
 #[wasm_implements(KvStore)]
 #[wasm_bindgen(js_class = "WasmMemoryKvStore")]
 impl WasmMemoryKvStore {
     #[wasm_bindgen(js_name = "put")]
-    pub fn js_put(&self, _key: JsValue, _value: JsValue) {}
-
-    #[wasm_bindgen(js_name = "get")]
-    pub fn js_get(&self, _key: JsValue) -> JsValue {
-        JsValue::UNDEFINED
+    pub fn js_put(&self, key: JsValue, value: JsValue) {
+        self.entries.borrow_mut().push((key, value));
     }
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "`KvStore` takes the key by value"
+    )]
+    #[wasm_bindgen(js_name = "get")]
+    pub fn js_get(&self, key: JsValue) -> JsValue {
+        self.entries
+            .borrow()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map_or(JsValue::UNDEFINED, |(_, v)| v.clone())
+    }
+
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "`KvStore` takes the key by value"
+    )]
     #[wasm_bindgen(js_name = "delete")]
-    pub fn js_delete(&self, _key: JsValue) -> bool {
-        false
+    pub fn js_delete(&self, key: JsValue) -> bool {
+        let mut entries = self.entries.borrow_mut();
+        let before = entries.len();
+        entries.retain(|(k, _)| *k != key);
+        entries.len() != before
     }
 }
 
@@ -53,15 +75,26 @@ pub trait BareCounter {
     fn get_count(&self) -> u32;
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug, Default)]
 #[wasm_bindgen]
-pub struct WasmBareCounter;
+pub struct WasmBareCounter {
+    count: u32,
+}
 
 #[wasm_implements(BareCounter)]
 #[wasm_bindgen(js_class = "WasmBareCounter")]
 impl WasmBareCounter {
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "wasm-bindgen can't export a `const fn`"
+    )]
     #[wasm_bindgen(js_name = getCount)]
     pub fn get_count(&self) -> u32 {
-        0
+        self.count
     }
 }
 
@@ -78,12 +111,21 @@ pub trait Finder {
     async fn js_find(&self, key: &str) -> Result<JsValue, JsValue>;
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug)]
 #[wasm_bindgen]
 pub struct WasmFinder;
 
 #[wasm_implements(Finder)]
 #[wasm_bindgen(js_class = "WasmFinder")]
 impl WasmFinder {
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "find")]
     pub async fn js_find(&self, key: &str) -> Result<JsValue, JsValue> {
         Ok(JsValue::from_str(key))
@@ -104,15 +146,26 @@ pub trait Setter {
     fn js_set(&self, value: u32, flag: bool) -> u32;
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug, Default)]
 #[wasm_bindgen]
-pub struct WasmSetter;
+pub struct WasmSetter {
+    step: u32,
+}
 
 #[wasm_implements(Setter)]
 #[wasm_bindgen(js_class = "WasmSetter")]
 impl WasmSetter {
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "wasm-bindgen can't export a `const fn`"
+    )]
     #[wasm_bindgen(js_name = "set")]
     pub fn js_set(&self, mut value: u32, _: bool) -> u32 {
-        value += 1;
+        value += self.step;
         value
     }
 }

@@ -1,6 +1,8 @@
 //! Realistic application pattern — shows how `WasmError` fits into
 //! a typical wasm-bindgen exported API with `Result` return types.
 
+use std::collections::BTreeMap;
+
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_error::WasmError;
@@ -53,32 +55,37 @@ pub enum WasmWriteError {
 
 // Exported Wasm API
 
+#[derive(Debug, Default)]
 #[wasm_bindgen]
-pub struct DocumentStore;
+pub struct DocumentStore {
+    docs: BTreeMap<String, String>,
+}
 
 // A realistic impl block showing how `?` flows through the error chain.
 // This can't use `#[wasm_bindgen]` on methods in a test crate (no JS
 // runtime), but we verify the types line up for `Result<_, WasmXxxError>`.
 
 impl DocumentStore {
-    /// Simulates a lookup that can fail with `WasmNotFoundError`.
+    /// A lookup that fails with `WasmNotFoundError`.
     pub fn get_document(&self, id: &str) -> Result<String, WasmNotFoundError> {
-        if id.is_empty() {
-            return Err(NotFoundError { id: id.to_string() })?;
-        }
-        Ok(format!("doc:{id}"))
+        self.docs
+            .get(id)
+            .cloned()
+            .ok_or_else(|| NotFoundError { id: id.to_string() }.into())
     }
 
-    /// Simulates a write that can fail with `WasmWriteError`.
-    pub fn save_document(&self, id: &str, content: &str) -> Result<(), WasmWriteError> {
+    /// A write that fails with `WasmWriteError`.
+    pub fn save_document(&mut self, id: &str, content: &str) -> Result<(), WasmWriteError> {
         if content.is_empty() {
             return Err(ValidationError {
                 reason: "content must not be empty".into(),
-            })?;
+            }
+            .into());
         }
         if id.starts_with("readonly:") {
-            return Err(StorageError::Write(format!("{id} is read-only")))?;
+            return Err(StorageError::Write(format!("{id} is read-only")).into());
         }
+        self.docs.insert(id.to_string(), content.to_string());
         Ok(())
     }
 }

@@ -18,7 +18,7 @@ use wasm_bindgen_error::WasmError;
 // Doc example: "Motivation"
 // The hand-written boilerplate that WasmError replaces.
 
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error)]
 #[error("manual error")]
 pub struct ManualError;
 
@@ -33,19 +33,19 @@ impl From<ManualError> for JsValue {
 // Doc example: "Usage"
 // The derive macro in action.
 
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error)]
 #[error("hydration failed")]
 pub struct HydrationError;
 
-#[derive(Debug, Error, WasmError)]
+#[derive(Clone, Copy, Debug, Error, WasmError)]
 #[error(transparent)]
 pub struct WasmHydrationError(#[from] HydrationError);
 
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error)]
 #[error("io error")]
 pub struct IoError;
 
-#[derive(Debug, Error, WasmError)]
+#[derive(Clone, Copy, Debug, Error, WasmError)]
 #[wasm_error(js_name = "StorageFailure")]
 #[error(transparent)]
 pub struct WasmIoError(#[from] IoError);

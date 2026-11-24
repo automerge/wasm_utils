@@ -13,8 +13,11 @@ pub trait Factory {
     fn js_describe(&self) -> String;
 }
 
+#[derive(Clone, Copy, Debug)]
 #[wasm_bindgen]
-pub struct WasmFactory;
+pub struct WasmFactory {
+    label: &'static str,
+}
 
 #[wasm_implements(Factory)]
 #[wasm_bindgen(js_class = "WasmFactory")]
@@ -26,7 +29,7 @@ impl WasmFactory {
 
     #[wasm_bindgen(js_name = "describe")]
     pub fn js_describe(&self) -> String {
-        String::from("factory")
+        String::from(self.label)
     }
 }
 

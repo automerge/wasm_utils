@@ -5,7 +5,7 @@ use core::fmt;
 use wasm_bindgen_error::WasmError;
 
 /// A simple error with hand-written trait impls.
-#[derive(Debug, WasmError)]
+#[derive(Clone, Copy, Debug, WasmError)]
 pub struct WasmManualError {
     code: u32,
 }

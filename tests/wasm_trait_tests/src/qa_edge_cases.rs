@@ -1,7 +1,7 @@
 //! QA edge-case tests for `wasm_trait` proc macros.
 //!
 //! Each test targets a specific edge case. Because these are compile-time
-//! assertion tests (wasm_bindgen extern types can't actually run on native),
+//! assertion tests (`wasm_bindgen` extern types can't actually run on native),
 //! "passing" means the macro expansion compiles without error.
 
 #![allow(
@@ -92,6 +92,11 @@ pub trait Beta {
     fn js_beta(&self) -> u32;
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug)]
 #[wasm_bindgen]
 pub struct WasmDualImpl;
 
@@ -201,6 +206,11 @@ pub trait TransportQa {
     fn js_recv_bytes(&self) -> JsValue;
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug)]
 #[wasm_bindgen]
 pub struct WasmTransportQa;
 
@@ -289,6 +299,11 @@ pub trait MixedQa {
     fn js_create(label: String) -> JsValue;
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug)]
 #[wasm_bindgen]
 pub struct WasmMixedQa;
 
@@ -300,6 +315,10 @@ impl WasmMixedQa {
         "mixed".into()
     }
 
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
     #[wasm_bindgen(js_name = "fetchItem")]
     pub async fn js_fetch_item(&self, _id: u32) -> Result<JsValue, JsValue> {
         Ok(JsValue::NULL)
@@ -338,6 +357,11 @@ pub mod inner_module {
     }
 }
 
+#[expect(
+    missing_copy_implementations,
+    reason = "exported to JS; its `&self` methods come from the trait"
+)]
+#[derive(Debug)]
 #[wasm_bindgen]
 pub struct WasmInnerImpl;
 

@@ -14,7 +14,7 @@ use quote::{quote, quote_spanned};
 use syn::{ext::IdentExt, spanned::Spanned, ImplItem, ImplItemFn, ItemImpl, Path};
 
 use crate::shared::{
-    attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
+    attrs::extract_js_name_from_attrs,
     method::{has_self_receiver, is_pub, to_rpitit_signature, with_fresh_args},
     naming::{tag_method_js_name, tag_method_rust_ident},
 };
@@ -64,13 +64,22 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
         .iter()
         .map(|method| {
             let method_name = &method.sig.ident;
-            let (sig, arg_names) = with_fresh_args(&method.sig);
+            let (mut sig, arg_names) = with_fresh_args(&method.sig);
+            // Trait impl methods can't be `const` (E0379).
+            sig.constness = None;
 
             // Transform to RPITIT if async
             let witness_sig = to_rpitit_signature(&sig);
 
-            // Strip wasm_bindgen attrs
-            let clean_attrs = strip_wasm_bindgen(&method.attrs);
+            // Only `#[cfg]` carries over: the witness must exist exactly when
+            // the method does. Lint attrs like `#[expect(clippy::unused_async)]`
+            // would misfire on the witness (which isn't async), and docs or
+            // `#[wasm_bindgen]` have no meaning on it.
+            let cfg_attrs: Vec<&syn::Attribute> = method
+                .attrs
+                .iter()
+                .filter(|attr| attr.path().is_ident("cfg"))
+                .collect();
 
             let body: TokenStream = if has_self_receiver(&sig) {
                 quote! { #self_ty::#method_name(self, #(#arg_names),*) }
@@ -79,7 +88,7 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
             };
 
             quote! {
-                #(#clean_attrs)*
+                #(#cfg_attrs)*
                 #witness_sig {
                     #body
                 }
@@ -297,22 +306,32 @@ mod tests {
     }
 
     #[test]
-    fn strips_wasm_bindgen_attrs_from_witness() -> TestResult {
+    fn witness_keeps_only_cfg_attrs() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
                 impl WasmFoo {
+                    /// Docs.
+                    #[cfg(feature = "net")]
+                    #[expect(clippy::unused_async, reason = "matches the trait")]
                     #[wasm_bindgen(js_name = "put")]
-                    pub fn js_put(&self, value: u32) -> u32 { value }
+                    pub async fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
         )?;
 
-        let witness_section = output
-            .split_once("const _ : () =")
-            .ok_or("must have witness")?
-            .1;
-        assert!(!witness_section.contains("wasm_bindgen"));
+        let witness = output
+            .split_once("impl Transport for WasmFoo")
+            .and_then(|(_, rest)| rest.split_once("const __METHODS"))
+            .ok_or("must have witness impl")?
+            .0;
+        assert!(
+            witness.contains(r#"# [cfg (feature = "net")] fn js_put"#),
+            "Witness: {witness}",
+        );
+        for absent in ["wasm_bindgen", "expect", "doc"] {
+            assert!(!witness.contains(absent), "{absent}: {witness}");
+        }
         Ok(())
     }
 
@@ -565,6 +584,28 @@ mod tests {
         assert!(
             output.contains("impl block already contains a method named `__wasm_impl_transport`"),
             "Output: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn witness_drops_const() -> TestResult {
+        let output = expand(
+            quote!(Counter),
+            quote! {
+                impl WasmFoo {
+                    pub const fn count(&self) -> u32 { 0 }
+                }
+            },
+        )?;
+
+        let witness = output
+            .split_once("impl Counter for WasmFoo")
+            .ok_or("must have witness impl")?
+            .1;
+        assert!(
+            witness.trim_start().starts_with("{ fn count"),
+            "Witness: {witness}"
         );
         Ok(())
     }
