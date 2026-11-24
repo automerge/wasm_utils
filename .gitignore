@@ -17,6 +17,9 @@ Cargo.lock
 .envrc.custom
 .direnv
 
+# wasm-pack output (TS fixture build artifacts)
+pkg/
+
 # Other files + dirs
 private
 *.temp
@@ -29,3 +32,6 @@ tests/report
 node_modules
 dist
 CLAUDE.md
+
+# cargo-mutants output
+mutants.out*/

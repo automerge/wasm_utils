@@ -24,6 +24,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install pinned Rust toolchain (rust-toolchain.toml)
+      run: rustup toolchain install
+
     - name: Test workspace
       run: cargo test --workspace --verbose
 
@@ -42,6 +45,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install pinned Rust toolchain (rust-toolchain.toml)
+      run: rustup toolchain install
 
     - name: Install Nix
       uses: DeterminateSystems/nix-installer-action@v21

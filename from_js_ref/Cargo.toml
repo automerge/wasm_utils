@@ -19,6 +19,9 @@ wasm-bindgen.workspace = true
 [dev-dependencies]
 wasm_refgen = { path = "../wasm_refgen" }
 
+[lints]
+workspace = true
+
 [features]
 default = []
 std = []

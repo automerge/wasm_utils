@@ -14,26 +14,9 @@ pub trait Counter {
     fn js_value(&self) -> u32;
 }
 
-/// The extern type `JsCounter` exists and implements `JsCast`.
-#[test]
-fn extern_type_is_js_cast() {
-    fn assert_js_cast<T: ::wasm_bindgen::JsCast>() {}
-    assert_js_cast::<JsCounter>();
-}
-
 /// The extern type implements the generated trait.
 #[test]
 fn extern_type_implements_trait() {
     fn assert_trait<T: Counter>() {}
     assert_trait::<JsCounter>();
-}
-
-/// The trait can be used as a generic bound.
-#[test]
-fn trait_usable_as_bound() {
-    fn use_counter<T: Counter>(c: &T) -> u32 {
-        c.js_value()
-    }
-    // Just verifying the function compiles
-    let _ = use_counter::<JsCounter>;
 }

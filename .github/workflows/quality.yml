@@ -24,6 +24,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install pinned Rust toolchain (rust-toolchain.toml)
+      run: rustup toolchain install
+
     - name: Build workspace
       run: cargo build --workspace --verbose
 
@@ -47,5 +50,14 @@ jobs:
         RUSTDOCFLAGS: "-D warnings"
       run: cargo doc --workspace --no-deps
 
-    - name: Check no_std compatibility
-      run: cargo check -p wasm_bindgen_trait --no-default-features
+    # Workspace builds merge dependency features across members, which can
+    # hide a crate's missing feature (e.g. syn/full). Build each published
+    # crate on its own, with and without default features. All four crates
+    # are `no_std` without the `std` feature (the macro crates still link
+    # `proc_macro`, so for them this mainly guards against `std`-only code).
+    - name: Check each crate standalone
+      run: |
+        for crate in from_js_ref wasm_bindgen_error wasm_bindgen_trait wasm_refgen; do
+          cargo check -p "$crate"
+          cargo check -p "$crate" --no-default-features
+        done

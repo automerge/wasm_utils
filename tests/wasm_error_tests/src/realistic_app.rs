@@ -1,0 +1,101 @@
+//! Realistic application pattern — shows how `WasmError` fits into
+//! a typical wasm-bindgen exported API with `Result` return types.
+
+use std::collections::BTreeMap;
+
+use thiserror::Error;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_error::WasmError;
+
+// Domain errors (from a core library)
+
+#[derive(Debug, Error)]
+#[error("document `{id}` not found")]
+pub struct NotFoundError {
+    id: String,
+}
+
+#[derive(Debug, Error)]
+#[error("validation failed: {reason}")]
+pub struct ValidationError {
+    reason: String,
+}
+
+#[derive(Debug, Error)]
+pub enum StorageError {
+    #[error("read failed: {0}")]
+    Read(String),
+
+    #[error("write failed: {0}")]
+    Write(String),
+}
+
+// Wasm error wrappers
+
+/// JS sees `"NotFoundError"`.
+#[derive(Debug, Error, WasmError)]
+#[error(transparent)]
+pub struct WasmNotFoundError(#[from] NotFoundError);
+
+/// JS sees `"ValidationError"`.
+#[derive(Debug, Error, WasmError)]
+#[error(transparent)]
+pub struct WasmValidationError(#[from] ValidationError);
+
+/// Multiple failure modes funneled into one JS error.
+/// JS sees `"WriteError"`.
+#[derive(Debug, Error, WasmError)]
+pub enum WasmWriteError {
+    #[error("validation: {0}")]
+    Validation(#[from] ValidationError),
+
+    #[error("storage: {0}")]
+    Storage(#[from] StorageError),
+}
+
+// Exported Wasm API
+
+#[derive(Debug, Default)]
+#[wasm_bindgen]
+pub struct DocumentStore {
+    docs: BTreeMap<String, String>,
+}
+
+// A realistic impl block showing how `?` flows through the error chain.
+// This can't use `#[wasm_bindgen]` on methods in a test crate (no JS
+// runtime), but we verify the types line up for `Result<_, WasmXxxError>`.
+
+impl DocumentStore {
+    /// A lookup that fails with `WasmNotFoundError`.
+    pub fn get_document(&self, id: &str) -> Result<String, WasmNotFoundError> {
+        self.docs
+            .get(id)
+            .cloned()
+            .ok_or_else(|| NotFoundError { id: id.to_string() }.into())
+    }
+
+    /// A write that fails with `WasmWriteError`.
+    pub fn save_document(&mut self, id: &str, content: &str) -> Result<(), WasmWriteError> {
+        if content.is_empty() {
+            return Err(ValidationError {
+                reason: "content must not be empty".into(),
+            }
+            .into());
+        }
+        if id.starts_with("readonly:") {
+            return Err(StorageError::Write(format!("{id} is read-only")).into());
+        }
+        self.docs.insert(id.to_string(), content.to_string());
+        Ok(())
+    }
+}
+
+// Tests
+
+#[test]
+fn all_error_types_convert_to_jsvalue() {
+    fn assert_from<T: Into<JsValue>>() {}
+    assert_from::<WasmNotFoundError>();
+    assert_from::<WasmValidationError>();
+    assert_from::<WasmWriteError>();
+}

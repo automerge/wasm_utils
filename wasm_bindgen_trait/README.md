@@ -59,7 +59,7 @@ impl WasmHttpLongPoll {
 | Parameter | Required | Default    | Description |
 |-----------|----------|------------|-------------|
 | `js_type` | Yes      | —          | Rust ident for the generated extern type |
-| `js_name` | No       | Trait name | JS/TS interface name |
+| `js_name` | No       | Trait name | TS type name         |
 
 ### `#[wasm_implements]`
 

@@ -43,10 +43,8 @@
 //! }
 //!
 //! // Or use the trait generically:
-//! async fn use_storage(s: &impl Storage) {
-//!     s.js_save("key".into(), JsValue::from_str("value"))
-//!         .await
-//!         .expect("save failed");
+//! async fn use_storage(s: &impl Storage) -> Result<(), JsValue> {
+//!     s.js_save("key".into(), JsValue::from_str("value")).await
 //! }
 //! ```
 //!
@@ -82,6 +80,9 @@
 //!
 //! If any method is missing or has the wrong signature, the compiler catches it.
 //!
+//! _All code examples above are compiled and tested in
+//! `tests/wasm_trait_tests/src/doc_examples.rs`._
+//!
 //! # Bridging to Domain Traits
 //!
 //! The generated trait uses JS-boundary types (`JsValue`, `Uint8Array`, etc.).
@@ -104,13 +105,13 @@
 //!         // Call the js_trait-generated method
 //!         self.js_save(id.into(), js_value)
 //!             .await
-//!             .map_err(MyError::from_js)
+//!             .map_err(|err| MyError::from_js(&err))
 //!     }
 //!
 //!     async fn load(&self, id: &str) -> Result<Vec<u8>, MyError> {
 //!         let result = self.js_load(id.into())
 //!             .await
-//!             .map_err(MyError::from_js)?;
+//!             .map_err(|err| MyError::from_js(&err))?;
 //!
 //!         // Convert JS types → Rust types
 //!         let array = Uint8Array::new(&result);
@@ -122,7 +123,7 @@
 //! struct MyError(String);
 //!
 //! impl MyError {
-//!     fn from_js(val: JsValue) -> Self {
+//!     fn from_js(val: &JsValue) -> Self {
 //!         Self(val.as_string().unwrap_or_else(|| "unknown error".into()))
 //!     }
 //! }
@@ -161,12 +162,15 @@
 //! // Or with explicit Future:
 //! impl Storage for MyType {
 //!     fn js_save(&self, key: String, value: JsValue)
-//!         -> impl Future<Output = Result<(), JsValue>> + '_
+//!         -> impl Future<Output = Result<(), JsValue>>
 //!     {
 //!         async move { Ok(()) }
 //!     }
 //! }
 //! ```
+//!
+//! Keep the return type's bounds identical to the trait's: the future already
+//! captures `&self`, and adding `+ '_` triggers the `refining_impl_trait` lint.
 //!
 //! # Error Types
 //!
@@ -193,30 +197,64 @@
 //! }
 //! ```
 //!
-//! > **Note:** TypeScript does not have typed exceptions, so the error type
-//! > `E` does not appear in the generated TypeScript interface.
-//! > `Result<Uint8Array, js_sys::Error>` in async maps to
-//! > `Promise<Uint8Array>` in TS — the rejection type is implicit.
+//! _Note:_ TypeScript does not have typed exceptions, so the error type `E`
+//! does not appear in the generated TypeScript type.
+//! `Result<Uint8Array, js_sys::Error>` in async maps to `Promise<Uint8Array>`
+//! in TS; the rejection type is implicit.
 //!
+//! # Static Methods
+//!
+//! A trait method without `self` isn't part of the JS object. It binds to a JS
+//! function, the same way a free `#[wasm_bindgen] extern` fn does:
+//!
+//! - by default, a global function named by `js_name`;
+//! - with `js_namespace = ...` (or `static_method_of = ...`), a property of
+//!   that object;
+//! - with `module = "..."`, an export of that module.
+//!
+//! In the generated TS, static methods are left out of the trait's type and
+//! collected in a separate `{Name}Statics` type, so the JS side can type the
+//! functions it provides (`const statics: StorageStatics = { ... }`).
+//!
+//! # TypeScript Output
+//!
+//! `#[js_trait]` emits a TS type for the trait, `export type Storage = { ... }`,
+//! and keeps it valid TS:
+//!
+//! - Parameter names that are reserved in TS get a trailing `_`
+//!   (`r#for` → `for_`, `new` → `new_`), and stay unique within a method.
+//!   Parameter names are documentation only, so this doesn't affect callers.
+//! - A method `js_name` that isn't a JS identifier is quoted
+//!   (`"my-method"(): number;`).
+//! - The type name (`js_name` on `#[js_trait]`, or the trait name) must be a JS
+//!   identifier and not a reserved word or builtin type such as `string`;
+//!   otherwise it's a compile error.
+//!
+//! It's a type alias rather than an `interface` on purpose. TS silently merges
+//! an interface into a class of the same name, which would make an exported
+//! class appear to have the trait's methods. A type alias with a class's name
+//! is a `Duplicate identifier` error in `tsc` instead.
+
 //! # JS Method Name Checking
 //!
 //! `#[js_trait]` generates a hidden constant listing the expected JS method
 //! names (from `#[wasm_bindgen(js_name = "...")]` attributes). When you use
-//! `#[wasm_implements]`, it checks at compile time that the impl block
-//! exports all the required JS method names.
+//! `#[wasm_implements]`, it checks at compile time that each method is
+//! exported under the JS name the trait requires.
 //!
-//! If a method is missing or has the wrong `js_name`, you get a compile error:
+//! A missing method is a regular `E0046` from the witness impl. A method with
+//! the wrong (or no) `js_name` gets an error pointing at that method:
 //!
 //! ```text
-//! error: impl block is missing one or more JS methods required by the interface
-//!        (check js_name attrs)
+//! error[E0080]: evaluation panicked: `Calc::js_add` must be exported to JS as
+//!               "add"; add #[wasm_bindgen(js_name = "add")] to it in the
+//!               #[wasm_implements(Calc)] impl block
 //! ```
 //!
-//! > **Note:** `#[js_trait]` requires `#[wasm_bindgen(js_name = "...")]` on
-//! > every method — omitting it is a compile error. On the
-//! > `#[wasm_implements]` side, methods without `js_name` use their Rust
-//! > name, which will not match the expected interface — catching the
-//! > mismatch at compile time.
+//! _Note:_ `#[js_trait]` requires `#[wasm_bindgen(js_name = "...")]` on every
+//! method; omitting it is a compile error. On the `#[wasm_implements]` side,
+//! methods without `js_name` use their Rust name, which won't match the
+//! expected one, so the mismatch is caught at compile time.
 //!
 //! # Macro Parameters
 //!
@@ -225,7 +263,7 @@
 //! | Parameter | Required | Default    | Description                         |
 //! |-----------|----------|------------|-------------------------------------|
 //! | `js_type` | Yes      | —          | Rust ident for the generated extern type |
-//! | `js_name` | No       | Trait name | JS/TS interface name                |
+//! | `js_name` | No       | Trait name | TS type name                        |
 //!
 //! ## `#[wasm_implements]`
 //!
@@ -259,7 +297,7 @@ mod wasm_implements;
 /// Define a JS duck-typed interface as a Rust trait.
 ///
 /// Generates:
-/// 1. A `typescript_custom_section` with the TypeScript interface
+/// 1. A `typescript_custom_section` with the TypeScript type
 /// 2. An `extern "C"` block with `#[wasm_bindgen]` bindings
 /// 3. The Rust trait (with `#[wasm_bindgen]` attrs stripped)
 /// 4. An `impl Trait for ExternType` that delegates to the extern fns

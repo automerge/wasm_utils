@@ -10,12 +10,12 @@ use alloc::{
     vec::Vec,
 };
 use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{spanned::Spanned, ImplItem, ImplItemFn, ItemImpl, Path};
+use quote::{quote, quote_spanned};
+use syn::{ext::IdentExt, spanned::Spanned, ImplItem, ImplItemFn, ItemImpl, Path};
 
 use crate::shared::{
-    attrs::{extract_js_name_from_attrs, strip_wasm_bindgen},
-    method::{arg_names, has_self_receiver, is_pub, to_rpitit_signature},
+    attrs::extract_js_name_from_attrs,
+    method::{has_self_receiver, is_pub, to_rpitit_signature, with_fresh_args},
     naming::{tag_method_js_name, tag_method_rust_ident},
 };
 
@@ -63,25 +63,32 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
     let witness_methods: Vec<TokenStream> = pub_methods
         .iter()
         .map(|method| {
-            let sig = &method.sig;
-            let method_name = &sig.ident;
+            let method_name = &method.sig.ident;
+            let (mut sig, arg_names) = with_fresh_args(&method.sig);
+            // Trait impl methods can't be `const` (E0379).
+            sig.constness = None;
 
             // Transform to RPITIT if async
-            let witness_sig = to_rpitit_signature(sig);
+            let witness_sig = to_rpitit_signature(&sig);
 
-            // Strip wasm_bindgen attrs
-            let clean_attrs = strip_wasm_bindgen(&method.attrs);
+            // Only `#[cfg]` carries over: the witness must exist exactly when
+            // the method does. Lint attrs like `#[expect(clippy::unused_async)]`
+            // would misfire on the witness (which isn't async), and docs or
+            // `#[wasm_bindgen]` have no meaning on it.
+            let cfg_attrs: Vec<&syn::Attribute> = method
+                .attrs
+                .iter()
+                .filter(|attr| attr.path().is_ident("cfg"))
+                .collect();
 
-            let arg_names: Vec<_> = arg_names(sig);
-
-            let body: TokenStream = if has_self_receiver(sig) {
+            let body: TokenStream = if has_self_receiver(&sig) {
                 quote! { #self_ty::#method_name(self, #(#arg_names),*) }
             } else {
                 quote! { #self_ty::#method_name(#(#arg_names),*) }
             };
 
             quote! {
-                #(#clean_attrs)*
+                #(#cfg_attrs)*
                 #witness_sig {
                     #body
                 }
@@ -91,11 +98,13 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
 
     // Extract JS names from pub methods BEFORE injecting the tag method
     // (to avoid borrow conflict with impl_block.items).
-    let actual_js_names: Vec<String> = pub_methods
+    let exported: Vec<ExportedMethod> = pub_methods
         .iter()
-        .map(|method| {
-            extract_js_name_from_attrs(&method.attrs)
-                .unwrap_or_else(|| method.sig.ident.to_string())
+        .map(|method| ExportedMethod {
+            rust_name: method.sig.ident.unraw().to_string(),
+            js_name: extract_js_name_from_attrs(&method.attrs)
+                .unwrap_or_else(|| method.sig.ident.unraw().to_string()),
+            span: method.sig.ident.span(),
         })
         .collect();
 
@@ -136,8 +145,7 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
     // Inject tag method into the original impl block
     impl_block.items.push(ImplItem::Fn(tag_method));
 
-    let witness_and_check =
-        gen_witness_and_check(trait_path, self_ty, &witness_methods, &actual_js_names);
+    let witness_and_check = gen_witness_and_check(trait_path, self_ty, &witness_methods, &exported);
 
     quote! {
         #impl_block
@@ -146,14 +154,32 @@ pub(crate) fn wasm_implements_impl(trait_path: &Path, mut impl_block: ItemImpl) 
 }
 
 /// Generate the hidden witness `impl Trait for Type` and the compile-time
-/// JS method name check, in a single `const _: ()` block.
+/// JS method name checks, in a single `const _: ()` block.
+///
+/// The witness makes rustc check that every trait method exists with the
+/// right signature. On top of that, each exported method's JS name is checked
+/// against the trait's `__JS_METHODS` table, one `const` block per method,
+/// spanned on that method, so a mismatch names the method and the JS name the
+/// trait requires.
 fn gen_witness_and_check(
     trait_path: &Path,
     self_ty: &syn::Type,
     witness_methods: &[TokenStream],
-    actual_js_names: &[String],
+    exported: &[ExportedMethod],
 ) -> TokenStream {
-    let actual_literals: Vec<TokenStream> = actual_js_names.iter().map(|s| quote!(#s)).collect();
+    let method_checks: Vec<TokenStream> = exported
+        .iter()
+        .map(|method| {
+            let ExportedMethod {
+                rust_name,
+                js_name,
+                span,
+            } = method;
+            quote_spanned! {*span=>
+                const { __wasm_trait_check_js_name(__METHODS, #rust_name, #js_name) };
+            }
+        })
+        .collect();
 
     quote! {
         const _: () = {
@@ -161,8 +187,7 @@ fn gen_witness_and_check(
                 #(#witness_methods)*
             }
 
-            const __ACTUAL: &[&str] = &[#(#actual_literals),*];
-            const __EXPECTED: &[&str] = <#self_ty as #trait_path>::__JS_INTERFACE;
+            const __METHODS: &[(&str, &str, &str)] = <#self_ty as #trait_path>::__JS_METHODS;
 
             const fn __wasm_trait_str_eq(a: &str, b: &str) -> bool {
                 let a = a.as_bytes();
@@ -176,30 +201,37 @@ fn gen_witness_and_check(
                 true
             }
 
-            const fn __wasm_trait_contains(haystack: &[&str], needle: &str) -> bool {
+            /// Panics (during const evaluation) with the trait's prebuilt
+            /// message when `rust_name` is a trait method exported under a
+            /// different JS name. Methods not in the trait are ignored.
+            const fn __wasm_trait_check_js_name(
+                table: &[(&str, &str, &str)],
+                rust_name: &str,
+                js_name: &str,
+            ) {
                 let mut i = 0;
-                while i < haystack.len() {
-                    if __wasm_trait_str_eq(haystack[i], needle) { return true; }
+                while i < table.len() {
+                    let (expected_rust, expected_js, message) = table[i];
+                    if __wasm_trait_str_eq(expected_rust, rust_name) {
+                        if !__wasm_trait_str_eq(expected_js, js_name) {
+                            panic!("{}", message);
+                        }
+                        return;
+                    }
                     i += 1;
                 }
-                false
             }
 
-            const fn __wasm_trait_check(expected: &[&str], actual: &[&str]) -> bool {
-                let mut i = 0;
-                while i < expected.len() {
-                    if !__wasm_trait_contains(actual, expected[i]) { return false; }
-                    i += 1;
-                }
-                true
-            }
-
-            const { assert!(
-                __wasm_trait_check(__EXPECTED, __ACTUAL),
-                "impl block is missing one or more JS methods required by the interface (check js_name attrs)"
-            ); }
+            #(#method_checks)*
         };
     }
+}
+
+/// A `pub` method of the annotated impl block, as JS will see it.
+struct ExportedMethod {
+    rust_name: String,
+    js_name: String,
+    span: proc_macro2::Span,
 }
 
 #[cfg(test)]
@@ -207,6 +239,7 @@ mod tests {
     use super::*;
     use alloc::{
         boxed::Box,
+        format,
         string::{String, ToString},
     };
     use quote::quote;
@@ -266,30 +299,39 @@ mod tests {
         )?;
 
         assert!(
-            output.contains("WasmFoo :: js_put (self , value)")
-                || output.contains("WasmFoo :: js_put(self, value)")
-                || output.contains("WasmFoo::js_put(self, value)"),
+            output.contains("WasmFoo :: js_put (self , __arg0)"),
+            "Output: {output}"
         );
         Ok(())
     }
 
     #[test]
-    fn strips_wasm_bindgen_attrs_from_witness() -> TestResult {
+    fn witness_keeps_only_cfg_attrs() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
                 impl WasmFoo {
+                    /// Docs.
+                    #[cfg(feature = "net")]
+                    #[expect(clippy::unused_async, reason = "matches the trait")]
                     #[wasm_bindgen(js_name = "put")]
-                    pub fn js_put(&self, value: u32) -> u32 { value }
+                    pub async fn js_put(&self, value: u32) -> u32 { value }
                 }
             },
         )?;
 
-        let witness_section = output
-            .split_once("const _ : () =")
-            .ok_or("must have witness")?
-            .1;
-        assert!(!witness_section.contains("wasm_bindgen"));
+        let witness = output
+            .split_once("impl Transport for WasmFoo")
+            .and_then(|(_, rest)| rest.split_once("const __METHODS"))
+            .ok_or("must have witness impl")?
+            .0;
+        assert!(
+            witness.contains(r#"# [cfg (feature = "net")] fn js_put"#),
+            "Witness: {witness}",
+        );
+        for absent in ["wasm_bindgen", "expect", "doc"] {
+            assert!(!witness.contains(absent), "{absent}: {witness}");
+        }
         Ok(())
     }
 
@@ -308,8 +350,11 @@ mod tests {
             .split_once("const _ : () =")
             .ok_or("must have witness")?
             .1;
-        assert!(witness_section.contains("Future"));
-        assert!(!witness_section.contains("async"));
+        assert!(
+            witness_section.contains("-> impl :: core :: future :: Future < Output = u32 > {"),
+            "async methods become RPITIT in the witness.\nWitness: {witness_section}",
+        );
+        assert!(!witness_section.contains("async fn"));
         Ok(())
     }
 
@@ -325,11 +370,18 @@ mod tests {
             },
         )?;
 
-        let impl_pos = output
-            .find("impl WasmFoo")
-            .ok_or("must have original impl")?;
-        let witness_pos = output.find("const _ : () =").ok_or("must have witness")?;
-        assert!(impl_pos < witness_pos);
+        let (original, _witness) = output
+            .split_once("const _ : () =")
+            .ok_or("must have witness")?;
+        assert!(original.starts_with("impl WasmFoo"));
+        assert!(
+            original.contains(r#"# [wasm_bindgen (js_name = "put")] pub fn js_put"#),
+            "the original method and its attrs must be kept.\nOriginal: {original}",
+        );
+        assert!(
+            original.contains("pub fn __wasm_impl_transport (& self) -> bool { true }"),
+            "the tag method must be injected into the original impl.\nOriginal: {original}",
+        );
         Ok(())
     }
 
@@ -349,9 +401,8 @@ mod tests {
             .ok_or("must have witness")?
             .1;
         assert!(
-            witness_section.contains("WasmFoo :: js_create (name)")
-                || witness_section.contains("WasmFoo :: js_create(name)")
-                || witness_section.contains("WasmFoo::js_create(name)"),
+            witness_section.contains("WasmFoo :: js_create (__arg0)"),
+            "Witness: {witness_section}",
         );
         Ok(())
     }
@@ -386,7 +437,7 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains("compile_error"));
+        assert!(output.contains("#[wasm_implements] must be used on an inherent impl"));
         Ok(())
     }
 
@@ -423,8 +474,9 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains("__JS_INTERFACE"));
-        assert!(output.contains("sendBytes"));
+        assert!(output.contains("__JS_METHODS"));
+        assert!(output
+            .contains(r#"__wasm_trait_check_js_name (__METHODS , "js_send_bytes" , "sendBytes")"#));
         Ok(())
     }
 
@@ -446,9 +498,37 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains(r#""save""#));
-        assert!(output.contains(r#""load""#));
-        assert!(output.contains(r#""delete""#));
+        for (rust_name, js_name) in [
+            ("js_save", "save"),
+            ("js_load", "load"),
+            ("js_delete", "delete"),
+        ] {
+            let check =
+                format!(r#"__wasm_trait_check_js_name (__METHODS , "{rust_name}" , "{js_name}")"#);
+            assert!(
+                output.contains(&check),
+                "missing {check}.\nOutput: {output}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn js_name_check_reads_bare_identifier_js_name() -> TestResult {
+        let output = expand(
+            quote!(Counter),
+            quote! {
+                impl WasmFoo {
+                    #[wasm_bindgen(js_name = getCount)]
+                    pub fn get_count(&self) -> u32 { 0 }
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains(r#"__wasm_trait_check_js_name (__METHODS , "get_count" , "getCount")"#),
+            "bare-identifier js_name must be checked as written.\nOutput: {output}",
+        );
         Ok(())
     }
 
@@ -463,24 +543,70 @@ mod tests {
             },
         )?;
 
-        assert!(output.contains(r#""js_send_bytes""#));
+        assert!(output.contains(r#"(__METHODS , "js_send_bytes" , "js_send_bytes")"#));
         Ok(())
     }
 
     #[test]
-    fn js_name_check_contains_const_assertion() -> TestResult {
+    fn js_name_check_is_one_const_block_per_method() -> TestResult {
         let output = expand(
             quote!(Transport),
             quote! {
                 impl WasmFoo {
                     #[wasm_bindgen(js_name = "send")]
                     pub fn js_send(&self) {}
+
+                    #[wasm_bindgen(js_name = "recv")]
+                    pub fn js_recv(&self) {}
                 }
             },
         )?;
 
-        assert!(output.contains("__wasm_trait_check"));
-        assert!(output.contains("assert !"));
+        assert_eq!(
+            output.matches("const { __wasm_trait_check_js_name").count(),
+            2,
+            "each exported method gets its own spanned check.\nOutput: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn error_on_tag_method_name_collision() -> TestResult {
+        let output = expand(
+            quote!(Transport),
+            quote! {
+                impl WasmFoo {
+                    pub fn __wasm_impl_transport(&self) -> bool { false }
+                }
+            },
+        )?;
+
+        assert!(
+            output.contains("impl block already contains a method named `__wasm_impl_transport`"),
+            "Output: {output}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn witness_drops_const() -> TestResult {
+        let output = expand(
+            quote!(Counter),
+            quote! {
+                impl WasmFoo {
+                    pub const fn count(&self) -> u32 { 0 }
+                }
+            },
+        )?;
+
+        let witness = output
+            .split_once("impl Counter for WasmFoo")
+            .ok_or("must have witness impl")?
+            .1;
+        assert!(
+            witness.trim_start().starts_with("{ fn count"),
+            "Witness: {witness}"
+        );
         Ok(())
     }
 }

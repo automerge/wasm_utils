@@ -1,0 +1,4 @@
+# `expect("brief reason")` is the preferred way to document invariants at
+# panic sites in test code; `expect_used = "warn"` (workspace lints) should
+# only police non-test code.
+allow-expect-in-tests = true

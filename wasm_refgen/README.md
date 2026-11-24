@@ -53,6 +53,12 @@ impl WasmFoo {
 
 It is worth noting that the `#[wasm_refgen(...)]` line MUST be placed above `#[wasm_bindgen(...)]`.
 
+Apply `#[wasm_refgen]` to exactly _one_ `impl` block per type. Each use emits a
+`FromJsRef` impl and an upcast method for the type, so a second use (even with a
+different `js_ref` name) fails with conflicting-implementation (`E0119`) and
+duplicate-definition (`E0592`) errors. Further `#[wasm_bindgen]` impl blocks for
+the same type are fine without the attribute.
+
 Simple use is straightforward:
 
 ```rust
@@ -96,9 +102,9 @@ pub fn process(js_value: &JsValue) -> Result<(), MyError> {
 }
 ```
 
-This performs a duck-type check under the hood: it verifies the JS object
-has the expected upcast method via `Reflect::has`, then converts through
-the generated reference type.
+This performs a duck-type check under the hood: it calls the JS object's
+upcast method and returns `None` if the method is missing, throws, or returns
+something other than a `WasmFoo`.
 
 > [!WARNING]
 > Do _not_ use `dyn_into::<JsFoo>()` or `dyn_ref::<JsFoo>()`. These rely on

@@ -1,0 +1,176 @@
+//! Compilable versions of the `wasm_bindgen_trait` crate-level doc examples.
+//!
+//! These live here instead of as doc-tests because `wasm_bindgen_trait` is a
+//! proc-macro crate. Proc-macro crates can only export macros — their
+//! `Cargo.toml` dependencies (`proc-macro2`, `quote`, `syn`) are for the
+//! macro implementation, not available to doc-test compilation. Any doc
+//! example referencing `wasm_bindgen::JsValue` or `js_sys::Promise` would
+//! fail with "unresolved module." This integration test crate has those
+//! dependencies, so the same code compiles here.
+//!
+//! The source doc comments keep `ignore` markers so the examples still
+//! render in `rustdoc`.
+
+use core::{cell::RefCell, future::Future};
+use std::collections::BTreeMap;
+
+#[allow(unused_imports)]
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_trait::{js_trait, wasm_implements};
+
+// Doc example: "Quick Start §1 — Define a JS interface"
+
+#[js_trait(js_type = JsStorage)]
+pub trait Storage {
+    #[wasm_bindgen(js_name = "save")]
+    async fn js_save(&self, key: String, value: JsValue) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(js_name = "load")]
+    async fn js_load(&self, key: String) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = "name")]
+    fn js_name(&self) -> String;
+}
+
+#[test]
+fn js_trait_generates_extern_type_and_trait() {
+    fn assert_storage<T: Storage>() {}
+    fn assert_js_cast<T: wasm_bindgen::JsCast>() {}
+
+    assert_storage::<JsStorage>();
+    assert_js_cast::<JsStorage>();
+}
+
+// Doc example: "Quick Start §2 — Use the JS object"
+
+#[allow(dead_code)]
+fn accept_storage(s: &JsStorage) {
+    let _name = s.js_name();
+}
+
+#[allow(dead_code)]
+async fn use_storage(s: &impl Storage) -> Result<(), JsValue> {
+    s.js_save("key".into(), JsValue::from_str("value")).await
+}
+
+// Doc example: "Quick Start §3 — wasm_implements"
+
+#[derive(Debug, Default)]
+#[wasm_bindgen]
+pub struct WasmMemoryStorage {
+    entries: RefCell<BTreeMap<String, JsValue>>,
+}
+
+#[wasm_implements(Storage)]
+#[wasm_bindgen(js_class = "WasmMemoryStorage")]
+impl WasmMemoryStorage {
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
+    #[wasm_bindgen(js_name = "save")]
+    pub async fn js_save(&self, key: String, value: JsValue) -> Result<(), JsValue> {
+        self.entries.borrow_mut().insert(key, value);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::unused_async,
+        reason = "must be `async` to match the trait's `async fn`"
+    )]
+    #[wasm_bindgen(js_name = "load")]
+    pub async fn js_load(&self, key: String) -> Result<JsValue, JsValue> {
+        Ok(self
+            .entries
+            .borrow()
+            .get(&key)
+            .cloned()
+            .unwrap_or(JsValue::UNDEFINED))
+    }
+
+    #[wasm_bindgen(js_name = "name")]
+    pub fn js_name(&self) -> String {
+        format!("memory ({} entries)", self.entries.borrow().len())
+    }
+}
+
+#[test]
+fn wasm_implements_conformance_compiles() {
+    fn assert_storage<T: Storage>() {}
+    assert_storage::<WasmMemoryStorage>();
+}
+
+// Doc example: "Bridging to Domain Traits"
+
+#[allow(dead_code)]
+trait DocumentStore {
+    async fn save(&self, id: &str, content: &[u8]) -> Result<(), DomainError>;
+
+    async fn load(&self, id: &str) -> Result<Vec<u8>, DomainError>;
+}
+
+#[allow(dead_code)]
+struct DomainError(String);
+
+impl DomainError {
+    #[allow(dead_code)]
+    fn from_js(val: &JsValue) -> Self {
+        Self(val.as_string().unwrap_or_else(|| "unknown error".into()))
+    }
+}
+
+impl DocumentStore for JsStorage {
+    async fn save(&self, id: &str, content: &[u8]) -> Result<(), DomainError> {
+        let js_value = js_sys::Uint8Array::from(content).into();
+        self.js_save(id.into(), js_value)
+            .await
+            .map_err(|err| DomainError::from_js(&err))
+    }
+
+    async fn load(&self, id: &str) -> Result<Vec<u8>, DomainError> {
+        let result = self
+            .js_load(id.into())
+            .await
+            .map_err(|err| DomainError::from_js(&err))?;
+
+        let array = js_sys::Uint8Array::new(&result);
+        Ok(array.to_vec())
+    }
+}
+
+// Doc example: "Async Methods — impl styles"
+
+#[allow(dead_code)]
+struct MyAsyncImpl;
+
+impl Storage for MyAsyncImpl {
+    // Style 1: async fn
+    async fn js_save(&self, _key: String, _value: JsValue) -> Result<(), JsValue> {
+        Ok(())
+    }
+
+    // Style 2: explicit Future return. Matches the trait's bounds exactly;
+    // adding `+ '_` would trip `refining_impl_trait` on a `pub` trait.
+    #[allow(clippy::manual_async_fn)] // the explicit form is the point here
+    fn js_load(&self, _key: String) -> impl Future<Output = Result<JsValue, JsValue>> {
+        async move { Ok(JsValue::UNDEFINED) }
+    }
+
+    fn js_name(&self) -> String {
+        "test".into()
+    }
+}
+
+// Doc example: "Error Types"
+
+#[js_trait(js_type = JsApi)]
+pub trait Api {
+    #[wasm_bindgen(js_name = "fetchRaw")]
+    async fn js_fetch_raw(&self) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = "fetchTyped")]
+    async fn js_fetch_typed(&self) -> Result<js_sys::Uint8Array, js_sys::Error>;
+
+    #[wasm_bindgen(js_name = "send")]
+    async fn js_send(&self, data: js_sys::Uint8Array) -> Result<(), js_sys::Error>;
+}

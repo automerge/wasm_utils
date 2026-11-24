@@ -26,27 +26,7 @@ fn async_extern_type_implements_trait() {
     assert_trait::<JsStorage>();
 }
 
-/// Async trait methods return `impl Future`.
-#[test]
-fn async_methods_return_future() {
-    fn assert_future<T: core::future::Future>(_t: &T) {}
-    fn check_save<T: Storage>(t: &T) {
-        let fut = t.js_save(0, JsValue::NULL);
-        assert_future(&fut);
-    }
-    let _ = check_save::<JsStorage>;
-}
-
-/// Mixed sync and async methods work together.
-#[test]
-fn mixed_sync_async() {
-    fn use_storage<T: Storage>(s: &T) -> String {
-        s.js_name()
-    }
-    let _ = use_storage::<JsStorage>;
-}
-
-// ── Typed error types ────────────────────────────────────────────
+// Typed error types
 
 /// Async methods can use `js_sys::Error` as the error type instead of `JsValue`.
 #[js_trait(js_type = JsTypedApi)]
@@ -68,12 +48,16 @@ fn typed_error_compiles() {
     assert_trait::<JsTypedApi>();
 }
 
-/// Typed errors work in generic bounds.
+// An async method borrowing a parameter: the generated `async move` body
+// captures `key` under the RPITIT's lifetime.
+#[js_trait(js_type = JsLookup)]
+pub trait Lookup {
+    #[wasm_bindgen(js_name = "find")]
+    async fn js_find(&self, key: &str) -> Result<JsValue, JsValue>;
+}
+
 #[test]
-fn typed_error_in_generic_context() {
-    fn use_api<T: TypedApi>(t: &T) {
-        let _fut = t.js_fetch_data();
-        let _fut2 = t.js_send(js_sys::Uint8Array::new_with_length(0));
-    }
-    let _ = use_api::<JsTypedApi>;
+fn async_method_with_borrowed_param_compiles() {
+    fn assert_trait<T: Lookup>() {}
+    assert_trait::<JsLookup>();
 }
