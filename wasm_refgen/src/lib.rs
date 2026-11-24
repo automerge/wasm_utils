@@ -645,7 +645,8 @@ mod tests {
             .map(|(before, _)| before)
             .expect("FromJsRef impl follows the user's impl block");
         assert!(
-            impl_block.contains("pub fn __wasm_refgen_to_wasm_foo (& self) -> Self { self . clone () }"),
+            impl_block
+                .contains("pub fn __wasm_refgen_to_wasm_foo (& self) -> Self { self . clone () }"),
             "Impl block: {impl_block}",
         );
     }
