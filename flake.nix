@@ -38,7 +38,8 @@
           config.allowUnfree = true;
         };
 
-        rustVersion = "1.90.0";
+        # Single source of truth, shared with CI's rustup.
+        rustVersion = (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml)).toolchain.channel;
 
         rust-toolchain = pkgs.rust-bin.stable.${rustVersion}.default.override {
           extensions = [

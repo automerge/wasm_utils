@@ -212,6 +212,22 @@ mod tests {
     }
 
     #[test]
+    fn js_identifiers_may_start_with_underscore_or_dollar() {
+        for name in ["_private", "$jq", "_", "$", "a$b", "café"] {
+            assert!(is_js_identifier(name), "{name}");
+        }
+        for name in ["", "1st", "my-method", "a b", "#x"] {
+            assert!(!is_js_identifier(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn member_names_escape_control_characters() {
+        assert_eq!(ts_member_name("a\u{7}b"), r#""a\u{7}b""#);
+        assert_eq!(ts_member_name("line\nbreak"), r#""line\u{a}break""#);
+    }
+
+    #[test]
     fn member_names_quote_only_non_identifiers() {
         assert_eq!(ts_member_name("getCount"), "getCount");
         assert_eq!(ts_member_name("delete"), "delete");
@@ -301,6 +317,8 @@ mod tests {
 
         bolero::check!().with_type::<String>().for_each(|name| {
             let member = ts_member_name(name);
+            // Raw control characters would break the `.d.ts` line structure.
+            assert!(!member.chars().any(char::is_control), "{member:?}");
             if is_js_identifier(name) {
                 assert_eq!(&member, name);
             } else {

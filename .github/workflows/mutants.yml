@@ -28,6 +28,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
@@ -59,6 +62,9 @@ jobs:
         shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2

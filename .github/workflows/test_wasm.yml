@@ -19,8 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust with wasm target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -42,8 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust with wasm target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -75,8 +75,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust with wasm target
-        run: rustup target add wasm32-unknown-unknown
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2

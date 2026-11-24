@@ -221,7 +221,7 @@ mod tests {
                 format!("Promise<{inner}>")
             );
 
-            assert!(!inner.is_empty());
+            assert_ne!(inner, "");
             assert_eq!(inner.matches('<').count(), inner.matches('>').count());
         });
     }

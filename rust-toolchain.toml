@@ -1,0 +1,8 @@
+# The Rust toolchain for this repo: CI (via rustup) and the Nix dev shell
+# (flake.nix reads `channel`) both use it, so lints can't drift between them.
+# Bump deliberately; it should match `rust-version` (MSRV) in Cargo.toml.
+[toolchain]
+channel = "1.90.0"
+components = ["clippy"]
+profile = "minimal"
+targets = ["wasm32-unknown-unknown"]

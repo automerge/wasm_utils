@@ -24,6 +24,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install pinned Rust toolchain (rust-toolchain.toml)
+      run: rustup toolchain install
+
     - name: Build workspace
       run: cargo build --workspace --verbose
 

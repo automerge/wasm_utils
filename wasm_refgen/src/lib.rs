@@ -627,4 +627,26 @@ mod tests {
         );
         assert!(output.contains("custom_clone (self)"), "Output: {output}");
     }
+
+    #[test]
+    fn upcast_method_is_injected_into_the_impl_block() {
+        let output = expand(
+            quote!(js_ref = JsFoo),
+            quote! {
+                #[wasm_bindgen(js_class = "Foo")]
+                impl WasmFoo {}
+            },
+        );
+
+        // The extern block also declares a `__wasm_refgen_to_wasm_foo`, so
+        // check for the injected *method body*, inside the user's impl.
+        let impl_block = output
+            .split_once("impl :: from_js_ref :: FromJsRef")
+            .map(|(before, _)| before)
+            .expect("FromJsRef impl follows the user's impl block");
+        assert!(
+            impl_block.contains("pub fn __wasm_refgen_to_wasm_foo (& self) -> Self { self . clone () }"),
+            "Impl block: {impl_block}",
+        );
+    }
 }

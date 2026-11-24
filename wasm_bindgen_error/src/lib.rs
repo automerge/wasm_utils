@@ -706,12 +706,12 @@ mod tests {
             };
             match wasm_error_impl(&input) {
                 Ok(tokens) => {
-                    assert!(!name.trim().is_empty());
+                    assert_ne!(name.trim(), "");
                     let expected = format!("set_name ({})", quote!(#name));
                     assert!(tokens.to_string().contains(&expected));
                 }
                 Err(err) => {
-                    assert!(name.trim().is_empty());
+                    assert_eq!(name.trim(), "");
                     assert!(err.to_string().contains("resolved JS error name is empty"));
                 }
             }
